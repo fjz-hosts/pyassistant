@@ -549,6 +549,7 @@ PyAssistant/
 ├── app.py                 # Flask应用主文件
 ├── python_agent.py        # AI智能代理
 ├── requirements.txt       # 依赖列表
+├── robots.txt             # 爬虫协议
 ├── .env                   # 环境变量文件
 ├── templates/
 │   └── index.html        # 主页面模板
