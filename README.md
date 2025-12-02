@@ -26,10 +26,7 @@ PyAssistant/
 ├── app.py                 # Flask应用主文件
 ├── python_agent.py        # AI智能代理
 ├── requirements.txt       # Python依赖列表
-├── .env.example          # 环境变量示例文件
-├── README.md             # 项目说明文档（本文件）
-├── Pyassistant_help.html # 详细帮助文档
-├── Pyassistant_source_code.html # 源代码查看器
+├── .env                   # 环境变量文件
 ├── templates/
 │   └── index.html        # 主页面HTML模板
 └── static/
