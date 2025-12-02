@@ -1,0 +1,100 @@
+User-agent: Baiduspider
+User-agent: Googlebot
+User-agent: MSNBot
+User-agent: Baiduspider-image
+User-agent: YoudaoBot
+Allow: /
+Disallow: /ask
+Disallow: /ask_stream
+Disallow: /execute_code
+Disallow: /syntax_check
+Disallow: /analyze_code
+Disallow: /get_documentation
+Disallow: /web_crawler
+Disallow: /voice_recognition
+Disallow: /login
+Disallow: /logout
+Disallow: /register
+Disallow: /check_login
+Disallow: /new_conversation
+Disallow: /get_conversations
+Disallow: /load_conversation/
+Disallow: /delete_conversation/
+Disallow: /clear
+Disallow: /search_handbook
+Disallow: /reinitialize
+Disallow: /static/temp/
+Disallow: /*.py$
+Disallow: /*.pyc$
+Disallow: /*.env$
+
+User-agent: Sogou web spider
+User-agent: Sogou inst spider
+User-agent: Sogou spider2
+User-agent: Sogou blog
+User-agent: Sogou News Spider
+User-agent: Sogou Orion spider
+Allow: /
+Disallow: /ask
+Disallow: /ask_stream
+Disallow: /execute_code
+Disallow: /syntax_check
+Disallow: /analyze_code
+Disallow: /get_documentation
+Disallow: /web_crawler
+Disallow: /voice_recognition
+Disallow: /login
+Disallow: /logout
+Disallow: /register
+Disallow: /check_login
+Disallow: /new_conversation
+Disallow: /get_conversations
+Disallow: /load_conversation/
+Disallow: /delete_conversation/
+Disallow: /clear
+Disallow: /search_handbook
+Disallow: /reinitialize
+Disallow: /static/temp/
+Disallow: /*.py$
+Disallow: /*.pyc$
+Disallow: /*.env$
+
+User-agent: ChinasoSpider
+User-agent: Sosospider
+User-agent: yisouspider
+User-agent: EasouSpider
+Allow: /
+Disallow: /ask
+Disallow: /ask_stream
+Disallow: /execute_code
+Disallow: /syntax_check
+Disallow: /analyze_code
+Disallow: /get_documentation
+Disallow: /web_crawler
+Disallow: /voice_recognition
+Disallow: /login
+Disallow: /logout
+Disallow: /register
+Disallow: /check_login
+Disallow: /new_conversation
+Disallow: /get_conversations
+Disallow: /load_conversation/
+Disallow: /delete_conversation/
+Disallow: /clear
+Disallow: /search_handbook
+Disallow: /reinitialize
+Disallow: /static/temp/
+Disallow: /*.py$
+Disallow: /*.pyc$
+Disallow: /*.env$
+
+User-agent: GPTBot
+User-agent: ChatGPT-User
+User-agent: Claude-Web
+User-agent: Google-Extended
+User-agent: FacebookBot
+User-agent: Applebot
+Disallow: /
+
+User-agent: *
+Disallow: /

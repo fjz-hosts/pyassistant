@@ -1,0 +1,34 @@
+# Web开发
+Flask==3.0.0
+Jinja2==3.1.2
+Werkzeug==3.0.1
+
+# AI/LLM开发
+langchain==0.1.7
+langchain-core==0.1.33
+langchain-openai==0.0.8
+openai==1.6.1
+
+# 数据处理
+PyPDF2==3.0.1
+pandas==2.1.4  # 可选，用于数据分析
+numpy==1.26.2  # 可选，数值计算
+
+# 数据库
+pymysql==1.1.0
+SQLAlchemy==2.0.23  # 可选，ORM
+Flask-SQLAlchemy==3.1.1  # 可选
+
+# 工具类
+python-dotenv==1.0.0
+requests==2.31.0
+markdown==3.5.2
+click==8.1.7  # Flask依赖
+
+# 开发工具
+black==23.11.0  # 代码格式化
+flake8==6.1.0   # 代码检查
+pytest==7.4.3   # 测试框架
+
+# 安全
+cryptography==41.0.7
