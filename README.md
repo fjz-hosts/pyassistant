@@ -19,23 +19,6 @@ PyAssistant 是一个基于 Web 的 Python 编程智能助手，集成了 AI 对
 - 网页数据采集
 - 编程问题解答
 
-## 项目结构
-
-```
-PyAssistant/
-├── app.py                 # Flask应用主文件
-├── python_agent.py        # AI智能代理
-├── requirements.txt       # Python依赖列表
-├── .env                   # 环境变量文件
-├── templates/
-│   └── index.html        # 主页面HTML模板
-└── static/
-    ├── style.css         # 前端样式文件
-    ├── script.js         # 前端逻辑脚本
-    ├── pyassistant.png   # 应用图标
-    └── temp/             # 临时文件目录
-```
-
 ## 功能特性
 
 ### 对话助手
@@ -566,7 +549,7 @@ PyAssistant/
 ├── app.py                 # Flask应用主文件
 ├── python_agent.py        # AI智能代理
 ├── requirements.txt       # 依赖列表
-├── .env.example          # 环境变量示例
+├── .env                   # 环境变量文件
 ├── templates/
 │   └── index.html        # 主页面模板
 └── static/
