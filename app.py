@@ -1,3 +1,4 @@
+# app.py
 from flask import Flask, render_template, request, jsonify, session, Response, redirect, url_for
 from datetime import datetime
 import json
@@ -18,11 +19,16 @@ import logging
 import tempfile
 import pymysql
 from functools import wraps
+import uuid
+from werkzeug.utils import secure_filename
+import fitz  # PyMuPDF - 用于PDF图片提取
+from PIL import Image
+import numpy as np
+from pathlib import Path
 
 # 延迟导入websocket，避免启动时错误
 try:
     import websocket
-
     WEBSOCKET_AVAILABLE = True
 except ImportError:
     WEBSOCKET_AVAILABLE = False
@@ -35,6 +41,21 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 app.secret_key = os.getenv('APP_SECRET_KEY')
 
+# 配置文件上传
+ALLOWED_IMAGE_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'}
+UPLOAD_FOLDER = 'static/uploads'
+MAX_IMAGE_SIZE = 10 * 1024 * 1024  # 10MB
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+app.config['MAX_CONTENT_LENGTH'] = MAX_IMAGE_SIZE
+
+# 创建上传目录
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs('static/images/handbook', exist_ok=True)
+
+def allowed_file(filename):
+    """检查文件扩展名"""
+    return '.' in filename and \
+           filename.rsplit('.', 1)[1].lower() in ALLOWED_IMAGE_EXTENSIONS
 
 # 添加自定义Jinja2过滤器：HTML实体解码
 @app.template_filter('unescape')
@@ -43,7 +64,6 @@ def unescape_filter(s):
     if not s:
         return s
     return html.unescape(str(s))
-
 
 # 数据库配置
 DB_CONFIG = {
@@ -57,7 +77,6 @@ DB_CONFIG = {
 
 # 数据库连接池
 db_connection = None
-
 
 def get_db_connection():
     """获取数据库连接"""
@@ -83,7 +102,6 @@ def get_db_connection():
             return db_connection
         except:
             raise
-
 
 def init_database():
     """初始化数据库表结构"""
@@ -137,22 +155,17 @@ def init_database():
         logger.error(f"数据库初始化失败: {e}")
         raise
 
-
 def require_login(f):
     """登录装饰器"""
-
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if 'user_id' not in session:
             return jsonify({'error': '请先登录'}), 401
         return f(*args, **kwargs)
-
     return decorated_function
-
 
 # 初始化智能体
 python_agent = None
-
 
 def initialize_agent():
     """初始化Python编程助手"""
@@ -168,6 +181,7 @@ def initialize_agent():
         class FallbackAgent:
             def __init__(self):
                 self.name = "Python编程助手（基础模式）"
+                self.enhanced_handbook = None
 
             def ask_question(self, question: str) -> str:
                 return f"⚠️ 系统初始化失败，当前运行在基础模式。\n\n您的问题是：{question}\n\n请检查：\n1. API密钥配置\n2. 网络连接\n3. 依赖包安装"
@@ -184,9 +198,450 @@ def initialize_agent():
             def code_analyzer(self, code: str) -> str:
                 return "代码分析功能在当前模式下不可用，请检查系统初始化状态"
 
+            def enhanced_handbook_search(self, query: str) -> str:
+                return "增强手册搜索功能在当前模式下不可用"
+
         python_agent = FallbackAgent()
         return False
 
+# 增强PDF处理器
+class EnhancedPDFHandbook:
+    """增强版PDF处理器，支持精确内容提取、图片识别和检索"""
+    
+    def __init__(self, pdf_path: str):
+        self.pdf_path = pdf_path
+        self.doc = None
+        self.content_index = {}  # 关键词到位置的索引
+        self.image_index = {}    # 图片到内容的映射
+        self.sections = {}       # 章节结构
+        self.text_cache = {}     # 页面文本缓存
+        self.images_cache = {}   # 图片缓存
+        self.load_pdf()
+        
+    def load_pdf(self):
+        """加载并索引PDF内容"""
+        try:
+            if not os.path.exists(self.pdf_path):
+                logger.warning(f"PDF文件不存在: {self.pdf_path}")
+                return
+            
+            self.doc = fitz.open(self.pdf_path)
+            self._extract_content()
+            self._build_index()
+            self._extract_and_save_images()
+            logger.info(f"PDF加载成功: {len(self.doc)}页, 图片{len(self.images_cache)}张")
+            
+        except Exception as e:
+            logger.error(f"加载PDF失败: {e}")
+    
+    def _extract_content(self):
+        """提取PDF文本内容并建立结构"""
+        for page_num in range(len(self.doc)):
+            page = self.doc[page_num]
+            text = page.get_text("text")
+            self.text_cache[page_num] = text
+            
+            # 提取章节标题
+            if page_num == 0:
+                self._parse_sections_from_text(text)
+    
+    def _parse_sections_from_text(self, text: str):
+        """从文本中解析章节结构"""
+        lines = text.split('\n')
+        current_section = "简介"
+        section_lines = []
+        
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            
+            # 改进的章节检测
+            if self._is_section_title(line):
+                if section_lines:
+                    self.sections[current_section] = '\n'.join(section_lines)
+                current_section = line
+                section_lines = []
+            else:
+                section_lines.append(line)
+        
+        if section_lines:
+            self.sections[current_section] = '\n'.join(section_lines)
+    
+    def _is_section_title(self, text: str) -> bool:
+        """判断是否为章节标题"""
+        patterns = [
+            r'^第[一二三四五六七八九十\d]+[章节条]',
+            r'^[一二三四五六七八九十]+、',
+            r'^\d+\.\d+',
+            r'^[A-Z][A-Z\s]+$',
+            r'^#+ ',
+            r'^[【\[](.*?)[】\]]$'
+        ]
+        
+        for pattern in patterns:
+            if re.match(pattern, text):
+                return True
+        
+        # 长度和内容判断
+        if len(text) < 50 and any(keyword in text.lower() for keyword in 
+                                 ['概述', '简介', '基础', '进阶', '高级', '总结', '附录']):
+            return True
+        
+        return False
+    
+    def _build_section_index(self):
+        """建立章节索引"""
+        for section, content in self.sections.items():
+            # 提取关键词
+            keywords = self._extract_keywords(content)
+            for keyword in keywords:
+                if keyword not in self.content_index:
+                    self.content_index[keyword] = []
+                self.content_index[keyword].append({
+                    'section': section,
+                    'content': content[:500],  # 截取前500字符
+                    'relevance': 'high'
+                })
+    
+    def _extract_keywords(self, text: str, max_keywords: int = 10) -> list:
+        """从文本中提取关键词"""
+        # 移除停用词
+        stop_words = {'的', '了', '和', '是', '在', '有', '就', '都', '而', '及', '与', '或', '等'}
+        
+        # 提取名词性短语
+        words = re.findall(r'[\u4e00-\u9fff]{2,5}', text) + re.findall(r'\b[a-zA-Z]{3,}\b', text)
+        
+        # 统计词频
+        word_freq = {}
+        for word in words:
+            if word not in stop_words:
+                word_freq[word] = word_freq.get(word, 0) + 1
+        
+        # 按频率排序
+        sorted_words = sorted(word_freq.items(), key=lambda x: x[1], reverse=True)
+        return [word for word, freq in sorted_words[:max_keywords]]
+    
+    def _build_index(self):
+        """构建全文索引"""
+        python_keywords = {
+            '语法', '函数', '类', '对象', '模块', '包', '异常', '装饰器',
+            '生成器', '迭代器', '列表', '字典', '集合', '元组', '字符串',
+            '文件', '输入输出', '多线程', '异步', '网络', '数据库',
+            '测试', '调试', '性能', '优化', '算法', '数据结构'
+        }
+        
+        for page_num, text in self.text_cache.items():
+            # 为每个关键词建立索引
+            for keyword in python_keywords:
+                if keyword in text:
+                    if keyword not in self.content_index:
+                        self.content_index[keyword] = []
+                    
+                    # 提取上下文
+                    context = self._get_context(text, keyword, 200)
+                    self.content_index[keyword].append({
+                        'page': page_num + 1,
+                        'context': context,
+                        'type': 'keyword_match'
+                    })
+    
+    def _get_context(self, text: str, keyword: str, context_size: int = 200) -> str:
+        """获取关键词上下文"""
+        pos = text.find(keyword)
+        if pos == -1:
+            return ""
+        
+        start = max(0, pos - context_size // 2)
+        end = min(len(text), pos + len(keyword) + context_size // 2)
+        return text[start:end]
+    
+    def _extract_and_save_images(self):
+        """提取PDF中的图片并缓存"""
+        try:
+            images_dir = Path("static/images/handbook")
+            images_dir.mkdir(parents=True, exist_ok=True)
+            
+            image_count = 0
+            for page_num in range(len(self.doc)):
+                page = self.doc[page_num]
+                image_list = page.get_images(full=True)
+                
+                for img_index, img in enumerate(image_list):
+                    xref = img[0]
+                    base_image = self.doc.extract_image(xref)
+                    
+                    if base_image:
+                        image_bytes = base_image["image"]
+                        image_ext = base_image["ext"]
+                        
+                        # 生成唯一文件名
+                        image_hash = hashlib.md5(image_bytes).hexdigest()[:8]
+                        image_filename = f"page_{page_num+1}_img_{img_index}_{image_hash}.{image_ext}"
+                        image_path = images_dir / image_filename
+                        
+                        # 保存图片
+                        with open(image_path, "wb") as f:
+                            f.write(image_bytes)
+                        
+                        # 缓存图片信息
+                        image_key = f"page_{page_num+1}_img_{img_index}"
+                        self.images_cache[image_key] = {
+                            'path': str(image_path),
+                            'page': page_num + 1,
+                            'index': img_index,
+                            'base64': self._image_to_base64(image_bytes, image_ext),
+                            'caption': self._generate_image_caption(page_num, img_index)
+                        }
+                        
+                        # 关联图片和附近文本
+                        self._link_image_to_text(page_num, img_index)
+                        
+                        image_count += 1
+            
+            logger.info(f"提取了 {image_count} 张图片")
+            
+        except Exception as e:
+            logger.error(f"提取图片失败: {e}")
+    
+    def _image_to_base64(self, image_bytes: bytes, image_ext: str) -> str:
+        """将图片转换为base64"""
+        return base64.b64encode(image_bytes).decode('utf-8')
+    
+    def _generate_image_caption(self, page_num: int, img_index: int) -> str:
+        """生成图片标题"""
+        page_text = self.text_cache.get(page_num, "")
+        
+        # 在图片附近找相关文本作为标题
+        lines = page_text.split('\n')
+        if lines and len(lines) > 0:
+            # 简单返回页面第一行作为标题
+            return lines[0][:50] + "..."
+        
+        return f"第{page_num+1}页 图片{img_index+1}"
+    
+    def _link_image_to_text(self, page_num: int, img_index: int):
+        """将图片与附近文本关联"""
+        page_text = self.text_cache.get(page_num, "")
+        if page_text:
+            # 提取页面中的关键词
+            keywords = self._extract_keywords(page_text, 5)
+            image_key = f"page_{page_num+1}_img_{img_index}"
+            
+            for keyword in keywords:
+                if keyword not in self.image_index:
+                    self.image_index[keyword] = []
+                self.image_index[keyword].append(image_key)
+    
+    def search_with_images(self, query: str, max_results: int = 5) -> dict:
+        """搜索内容并返回相关图片"""
+        results = {
+            'text_results': [],
+            'image_results': [],
+            'sections': []
+        }
+        
+        query_lower = query.lower()
+        
+        # 1. 搜索章节
+        for section, content in self.sections.items():
+            if query_lower in section.lower() or query_lower in content.lower():
+                # 提取相关段落
+                paragraphs = content.split('\n')
+                relevant_content = []
+                
+                for para in paragraphs:
+                    if query_lower in para.lower():
+                        clean_para = re.sub(r'\s+', ' ', para).strip()
+                        if len(clean_para) > 30:
+                            relevant_content.append(clean_para)
+                
+                if relevant_content:
+                    results['sections'].append({
+                        'title': section,
+                        'content': ' '.join(relevant_content[:2]),
+                        'full_content': content[:1000]
+                    })
+        
+        # 2. 搜索关键词索引
+        for keyword in query_lower.split():
+            if keyword in self.content_index:
+                for item in self.content_index[keyword][:max_results]:
+                    results['text_results'].append({
+                        'type': 'keyword',
+                        'keyword': keyword,
+                        'content': item.get('context', item.get('content', '')),
+                        'page': item.get('page', 1),
+                        'relevance': item.get('relevance', 'medium')
+                    })
+        
+        # 3. 搜索相关图片
+        for keyword in query_lower.split():
+            if keyword in self.image_index:
+                for image_key in self.image_index[keyword][:3]:  # 最多3张图片
+                    if image_key in self.images_cache:
+                        image_info = self.images_cache[image_key]
+                        results['image_results'].append({
+                            'key': image_key,
+                            'caption': image_info['caption'],
+                            'base64': image_info['base64'],
+                            'page': image_info['page'],
+                            'related_keyword': keyword
+                        })
+        
+        # 如果没有直接结果，尝试模糊匹配
+        if not results['text_results'] and not results['image_results']:
+            results = self._fuzzy_search(query)
+        
+        return results
+    
+    def _fuzzy_search(self, query: str) -> dict:
+        """模糊搜索"""
+        results = {
+            'text_results': [],
+            'image_results': [],
+            'sections': []
+        }
+        
+        # 在所有文本中搜索
+        for page_num, text in self.text_cache.items():
+            if query in text.lower():
+                context = self._get_context(text, query, 300)
+                results['text_results'].append({
+                    'type': 'full_text',
+                    'content': context,
+                    'page': page_num + 1,
+                    'relevance': 'medium'
+                })
+        
+        return results
+    
+    def get_relevant_images(self, topic: str, limit: int = 3) -> list:
+        """获取特定主题的相关图片"""
+        images = []
+        
+        # 从图片索引中查找
+        for keyword in topic.lower().split():
+            if keyword in self.image_index:
+                for image_key in self.image_index[keyword][:limit]:
+                    if image_key in self.images_cache:
+                        images.append(self.images_cache[image_key])
+        
+        # 如果没有找到，返回第一页的图片
+        if not images:
+            for key, img in self.images_cache.items():
+                if img['page'] == 1:
+                    images.append(img)
+                    if len(images) >= limit:
+                        break
+        
+        return images
+    
+    def get_page_images(self, page_num: int) -> list:
+        """获取指定页面的所有图片"""
+        images = []
+        
+        for key, img in self.images_cache.items():
+            if img['page'] == page_num:
+                images.append(img)
+        
+        return images
+    
+    def search_exact_content(self, exact_phrase: str) -> list:
+        """精确短语搜索"""
+        results = []
+        
+        for page_num, text in self.text_cache.items():
+            positions = [m.start() for m in re.finditer(re.escape(exact_phrase), text, re.IGNORECASE)]
+            
+            for pos in positions[:3]:  # 最多3个匹配
+                start = max(0, pos - 100)
+                end = min(len(text), pos + len(exact_phrase) + 100)
+                context = text[start:end]
+                
+                results.append({
+                    'page': page_num + 1,
+                    'position': pos,
+                    'context': context,
+                    'exact_match': exact_phrase
+                })
+        
+        return results
+    
+    def generate_citation(self, content: str, max_length: int = 500) -> str:
+        """生成引用格式的内容"""
+        if not content:
+            return ""
+        
+        # 查找内容在PDF中的位置
+        for page_num, text in self.text_cache.items():
+            if content[:100] in text:
+                start_pos = text.find(content[:100])
+                if start_pos != -1:
+                    return f"《Python背记手册》第{page_num+1}页: {content[:max_length]}..."
+        
+        # 如果没找到，返回原始内容
+        return content[:max_length] + "..."
+
+# 初始化增强版PDF处理器
+enhanced_handbook = None
+
+def initialize_enhanced_handbook():
+    """初始化增强版PDF处理器"""
+    global enhanced_handbook
+    try:
+        pdf_path = os.path.join(os.path.dirname(__file__), 'static', 'Python背记手册.pdf')
+        enhanced_handbook = EnhancedPDFHandbook(pdf_path)
+        print("✅ 增强版PDF处理器初始化成功")
+        return True
+    except Exception as e:
+        print(f"❌ 增强版PDF处理器初始化失败: {e}")
+        enhanced_handbook = None
+        return False
+
+def save_uploaded_image(file):
+    """保存上传的图片并返回路径和base64"""
+    try:
+        if file and allowed_file(file.filename):
+            # 生成唯一文件名
+            filename = secure_filename(file.filename)
+            unique_filename = f"{uuid.uuid4().hex}_{filename}"
+            filepath = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
+            
+            # 读取文件内容
+            image_data = file.read()
+            
+            # 检查文件大小
+            if len(image_data) > MAX_IMAGE_SIZE:
+                raise ValueError(f"图片大小不能超过{MAX_IMAGE_SIZE // 1024 // 1024}MB")
+            
+            # 保存文件
+            with open(filepath, 'wb') as f:
+                f.write(image_data)
+            
+            # 转换为base64
+            image_base64 = base64.b64encode(image_data).decode('utf-8')
+            mime_type = file.content_type or 'image/jpeg'
+            
+            return {
+                'success': True,
+                'filename': unique_filename,
+                'filepath': filepath,
+                'url': f'/static/uploads/{unique_filename}',
+                'base64': f'data:{mime_type};base64,{image_base64}',
+                'size': len(image_data)
+            }
+        else:
+            return {
+                'success': False,
+                'error': '不支持的文件格式'
+            }
+    except Exception as e:
+        logger.error(f"保存图片失败: {e}")
+        return {
+            'success': False,
+            'error': str(e)
+        }
 
 # 启动时初始化
 try:
@@ -196,7 +651,7 @@ except Exception as e:
     logger.error(f"❌ 数据库初始化失败: {e}")
 
 initialize_agent()
-
+initialize_enhanced_handbook()
 
 # 工具函数：删除空白对话
 def delete_empty_conversations(user_id: int):
@@ -214,7 +669,6 @@ def delete_empty_conversations(user_id: int):
             conn.commit()
     except Exception as e:
         logger.error(f"删除空白对话失败: {e}")
-
 
 # 存储对话历史（数据库版本）
 def get_current_conversation_id():
@@ -241,7 +695,6 @@ def get_current_conversation_id():
             return None
 
     return session.get('conversation_id')
-
 
 def get_chat_history():
     """从数据库获取对话历史"""
@@ -270,7 +723,6 @@ def get_chat_history():
     except Exception as e:
         logger.error(f"获取对话历史失败: {e}")
         return []
-
 
 def add_to_chat_history(role, message, message_type="text"):
     """添加消息到数据库"""
@@ -302,7 +754,6 @@ def add_to_chat_history(role, message, message_type="text"):
             conn.commit()
     except Exception as e:
         logger.error(f"保存消息失败: {e}")
-
 
 def process_ai_response(response_text):
     """
@@ -341,7 +792,6 @@ def process_ai_response(response_text):
         '''
 
     return html_content
-
 
 class XunfeiVoiceRecognition:
     def __init__(self):
@@ -626,7 +1076,6 @@ class XunfeiVoiceRecognition:
                 'error': f'识别异常: {str(e)}'
             }
 
-
 def convert_audio_to_pcm(audio_data):
     """将音频转换为PCM格式（优先使用pydub在内存中转换）"""
     # 首先尝试使用pydub（完全在内存中，无需临时文件）
@@ -821,11 +1270,9 @@ def convert_audio_to_pcm(audio_data):
         except Exception as e:
             logger.warning(f"清理临时文件时发生异常: {e}")
 
-
 @app.route('/')
 def home():
     return redirect(url_for('index'))
-
 
 @app.route('/pyassistant')
 def index():
@@ -836,7 +1283,6 @@ def index():
     # 获取当前对话的历史记录
     history = get_chat_history()
     return render_template('index.html', chat_history=history, logged_in=True)
-
 
 @app.route('/register', methods=['POST'])
 def register():
@@ -895,7 +1341,6 @@ def register():
         logger.error(f"注册异常: {e}")
         return jsonify({'error': f'注册失败: {str(e)}'}), 500
 
-
 @app.route('/login', methods=['POST'])
 def login():
     """用户登录"""
@@ -945,13 +1390,11 @@ def login():
         logger.error(f"登录异常: {e}")
         return jsonify({'error': f'登录失败: {str(e)}'}), 500
 
-
 @app.route('/logout', methods=['POST'])
 def logout():
     """用户登出"""
     session.clear()
     return jsonify({'success': True, 'message': '已登出'})
-
 
 @app.route('/check_login', methods=['GET'])
 def check_login():
@@ -963,7 +1406,6 @@ def check_login():
             'username': session.get('username')
         })
     return jsonify({'logged_in': False})
-
 
 @app.route('/search_handbook', methods=['POST'])
 @require_login
@@ -980,11 +1422,13 @@ def search_handbook():
         if python_agent is None:
             return jsonify({'error': '智能体未正确初始化'})
 
-        if not hasattr(python_agent, 'handbook_search'):
+        # 使用增强版手册搜索
+        if hasattr(python_agent, 'enhanced_handbook_search'):
+            result = python_agent.enhanced_handbook_search(query)
+        elif hasattr(python_agent, 'handbook_search'):
+            result = python_agent.handbook_search(query)
+        else:
             return jsonify({'error': '手册搜索功能不可用'})
-
-        # 使用智能体的手册搜索工具
-        result = python_agent.handbook_search(query)
 
         return jsonify({
             'success': True,
@@ -994,6 +1438,188 @@ def search_handbook():
     except Exception as e:
         return jsonify({'error': f'搜索手册时出现错误: {str(e)}'})
 
+@app.route('/enhanced_search', methods=['POST'])
+@require_login
+def enhanced_search():
+    """增强搜索，包含图片"""
+    try:
+        data = request.get_json()
+        query = data.get('query', '').strip()
+        
+        if not query:
+            return jsonify({'error': '搜索查询不能为空'})
+        
+        if enhanced_handbook is None:
+            return jsonify({'error': 'PDF处理器未初始化'})
+        
+        # 执行增强搜索
+        results = enhanced_handbook.search_with_images(query)
+        
+        # 格式化结果
+        formatted_results = []
+        
+        # 处理文本结果
+        for result in results.get('text_results', []):
+            citation = enhanced_handbook.generate_citation(result['content'])
+            formatted_results.append({
+                'type': 'text',
+                'content': citation,
+                'page': result.get('page', 1),
+                'relevance': result.get('relevance', 'medium')
+            })
+        
+        # 处理章节结果
+        for section in results.get('sections', []):
+            formatted_results.append({
+                'type': 'section',
+                'title': section['title'],
+                'content': section['content'],
+                'full_content': section.get('full_content', '')
+            })
+        
+        # 处理图片结果
+        image_results = []
+        for img in results.get('image_results', []):
+            image_results.append({
+                'caption': img['caption'],
+                'base64': img['base64'],
+                'page': img['page']
+            })
+        
+        return jsonify({
+            'success': True,
+            'text_results': formatted_results,
+            'image_results': image_results,
+            'total_found': len(formatted_results) + len(image_results)
+        })
+        
+    except Exception as e:
+        logger.error(f"增强搜索失败: {e}")
+        return jsonify({'error': f'搜索失败: {str(e)}'})
+
+@app.route('/upload_image', methods=['POST'])
+@require_login
+def upload_image():
+    """上传图片"""
+    try:
+        if 'image' not in request.files:
+            return jsonify({'error': '没有上传图片'})
+        
+        file = request.files['image']
+        if file.filename == '':
+            return jsonify({'error': '没有选择文件'})
+        
+        result = save_uploaded_image(file)
+        
+        if result['success']:
+            # 将图片信息保存到对话历史
+            image_html = f'''
+            <div class="user-uploaded-image">
+                <img src="{result['base64']}" alt="上传的图片" />
+                <div class="image-caption">用户上传的图片</div>
+            </div>
+            '''
+            
+            # 添加到对话历史
+            add_to_chat_history('user', image_html, 'html')
+            
+            return jsonify({
+                'success': True,
+                'image_url': result['url'],
+                'image_base64': result['base64'],
+                'message': '图片上传成功'
+            })
+        else:
+            return jsonify({'error': result['error']})
+            
+    except Exception as e:
+        logger.error(f"上传图片失败: {e}")
+        return jsonify({'error': f'上传图片失败: {str(e)}'})
+
+@app.route('/ask_with_image', methods=['POST'])
+@require_login
+def ask_with_image():
+    """带图片的提问"""
+    try:
+        data = request.get_json()
+        question = data.get('question', '').strip()
+        image_base64 = data.get('image', '').strip()
+        
+        if not question and not image_base64:
+            return jsonify({'error': '问题和图片不能同时为空'})
+        
+        # 如果有图片，先搜索相关的手册内容
+        related_content = ""
+        if question and enhanced_handbook:
+            results = enhanced_handbook.search_with_images(question)
+            if results['text_results'] or results['sections']:
+                # 构建相关内容的提示
+                related_content = "\n\n根据《Python背记手册》相关内容：\n"
+                for result in results.get('text_results', [])[:3]:
+                    related_content += f"- {result.get('content', '')[:200]}...\n"
+        
+        # 构建完整的提问
+        full_question = question
+        if related_content:
+            full_question = question + related_content
+        
+        # 如果有上传的图片，添加到提示中
+        if image_base64:
+            full_question += "\n\n用户上传了相关图片，请结合图片内容进行回答。"
+        
+        # 调用智能体
+        answer = python_agent.ask_question(full_question)
+        
+        # 如果有相关图片，添加到回答中
+        if enhanced_handbook and question:
+            images = enhanced_handbook.get_relevant_images(question, limit=2)
+            if images:
+                for img in images:
+                    answer += f"\n\n[IMAGE:{img['caption']}]\n{img['base64']}\n[/IMAGE]"
+        
+        # 处理回答
+        answer_html = process_ai_response(answer)
+        
+        # 添加到历史
+        add_to_chat_history('user', question + (" (含图片)" if image_base64 else ""), "text")
+        add_to_chat_history('assistant', answer_html, "html")
+        
+        return jsonify({
+            'success': True,
+            'answer': answer_html,
+            'has_images': len(images) > 0 if 'images' in locals() else False,
+            'timestamp': datetime.now().strftime("%H:%M:%S")
+        })
+        
+    except Exception as e:
+        logger.error(f"带图片提问失败: {e}")
+        return jsonify({'error': f'处理失败: {str(e)}'})
+
+@app.route('/get_pdf_images', methods=['POST'])
+@require_login
+def get_pdf_images():
+    """获取PDF中的相关图片"""
+    try:
+        data = request.get_json()
+        topic = data.get('topic', '').strip()
+        
+        if not topic:
+            return jsonify({'error': '主题不能为空'})
+        
+        if enhanced_handbook is None:
+            return jsonify({'error': 'PDF处理器未初始化'})
+        
+        images = enhanced_handbook.get_relevant_images(topic)
+        
+        return jsonify({
+            'success': True,
+            'images': images,
+            'count': len(images)
+        })
+        
+    except Exception as e:
+        logger.error(f"获取PDF图片失败: {e}")
+        return jsonify({'error': f'获取图片失败: {str(e)}'})
 
 @app.route('/new_conversation', methods=['POST'])
 @require_login
@@ -1016,7 +1642,6 @@ def new_conversation():
     except Exception as e:
         logger.error(f"创建新对话失败: {e}")
         return jsonify({'error': f'创建新对话失败: {str(e)}'}), 500
-
 
 @app.route('/get_conversations', methods=['GET'])
 @require_login
@@ -1048,7 +1673,6 @@ def get_conversations():
         logger.error(f"获取对话列表失败: {e}")
         return jsonify({'error': f'获取对话列表失败: {str(e)}'}), 500
 
-
 @app.route('/load_conversation/<int:conversation_id>', methods=['POST'])
 @require_login
 def load_conversation(conversation_id):
@@ -1079,7 +1703,6 @@ def load_conversation(conversation_id):
     except Exception as e:
         logger.error(f"加载对话失败: {e}")
         return jsonify({'error': f'加载对话失败: {str(e)}'}), 500
-
 
 @app.route('/delete_conversation/<int:conversation_id>', methods=['POST'])
 @require_login
@@ -1113,7 +1736,6 @@ def delete_conversation(conversation_id):
     except Exception as e:
         logger.error(f"删除对话失败: {e}")
         return jsonify({'error': f'删除对话失败: {str(e)}'}), 500
-
 
 @app.route('/ask', methods=['POST'])
 @require_login
@@ -1170,7 +1792,6 @@ def ask_question():
         error_msg = f'处理问题时出现错误: {str(e)}'
         add_to_chat_history('system', error_msg, "text")
         return jsonify({'error': error_msg})
-
 
 @app.route('/ask_stream', methods=['POST'])
 def ask_question_stream():
@@ -1235,7 +1856,6 @@ def ask_question_stream():
 
     return Response(generate(), mimetype='text/event-stream')
 
-
 @app.route('/clear', methods=['POST'])
 @require_login
 def clear_chat():
@@ -1252,7 +1872,6 @@ def clear_chat():
             return jsonify({'error': f'清空对话失败: {str(e)}'}), 500
 
     return jsonify({'success': True})
-
 
 @app.route('/syntax_check', methods=['POST'])
 @require_login
@@ -1284,7 +1903,6 @@ def syntax_check():
     except Exception as e:
         return jsonify({'error': f'语法检查时出现错误: {str(e)}'})
 
-
 @app.route('/execute_code', methods=['POST'])
 @require_login
 def execute_code():
@@ -1315,7 +1933,6 @@ def execute_code():
 
     except Exception as e:
         return jsonify({'error': f'代码执行时出现错误: {str(e)}'})
-
 
 @app.route('/get_documentation', methods=['POST'])
 @require_login
@@ -1358,7 +1975,6 @@ def get_documentation():
     except Exception as e:
         return jsonify({'error': f'获取文档时出现错误: {str(e)}'})
 
-
 @app.route('/analyze_code', methods=['POST'])
 @require_login
 def analyze_code():
@@ -1389,7 +2005,6 @@ def analyze_code():
 
     except Exception as e:
         return jsonify({'error': f'代码分析时出现错误: {str(e)}'})
-
 
 @app.route('/web_crawler', methods=['POST'])
 @require_login
@@ -1463,7 +2078,6 @@ else:
 
     except Exception as e:
         return jsonify({'error': f'网页爬取时出现错误: {str(e)}'})
-
 
 @app.route('/voice_recognition', methods=['POST'])
 @require_login
@@ -1543,7 +2157,6 @@ def voice_recognition():
         logger.error(f"语音识别异常: {e}")
         return jsonify({'error': f'语音识别失败: {str(e)}'})
 
-
 @app.route('/voice_config')
 def get_voice_config():
     """获取语音识别配置"""
@@ -1556,19 +2169,22 @@ def get_voice_config():
         'ws_url': voice_recog.ws_url
     })
 
-
 @app.route('/health')
 def health_check():
     """健康检查端点"""
     status = "healthy" if python_agent is not None else "degraded"
     agent_type = type(python_agent).__name__ if python_agent else "None"
+    
+    pdf_status = "loaded" if enhanced_handbook is not None else "not_loaded"
+    pdf_images = len(enhanced_handbook.images_cache) if enhanced_handbook else 0
 
     return jsonify({
         'status': status,
         'agent_type': agent_type,
+        'pdf_status': pdf_status,
+        'pdf_images': pdf_images,
         'timestamp': datetime.now().isoformat()
     })
-
 
 @app.route('/reinitialize', methods=['POST'])
 def reinitialize_agent():
@@ -1586,7 +2202,6 @@ def reinitialize_agent():
             'error': f'重新初始化失败: {str(e)}'
         })
 
-
 @app.route('/robots.txt')
 def robots_txt():
     """提供同目录下的robots.txt文件"""
@@ -1601,7 +2216,6 @@ def robots_txt():
     except Exception as e:
         logger.error(f"读取robots.txt失败: {e}")
         return Response("Server error", status=500, mimetype='text/plain')
-
 
 if __name__ == '__main__':
     # 确保临时目录存在
@@ -1631,6 +2245,14 @@ if __name__ == '__main__':
         print("✅ websocket-client 已安装")
     else:
         print("❌ 请安装依赖: pip install websocket-client")
+    
+    # 检查PyMuPDF
+    try:
+        import fitz
+        print("✅ PyMuPDF 已安装")
+    except ImportError:
+        print("❌ PyMuPDF 未安装，请运行: pip install PyMuPDF")
+        print("   这是PDF图片提取功能所必需的")
 
     # 检查音频处理依赖
     has_pydub = False
@@ -1639,7 +2261,6 @@ if __name__ == '__main__':
     # 检查pydub（优先使用，完全在内存中转换，无需临时文件）
     try:
         import pydub
-
         has_pydub = True
         print("✅ pydub 已安装（推荐：在内存中转换音频，无需临时文件，避免权限问题）")
     except ImportError:
@@ -1664,4 +2285,10 @@ if __name__ == '__main__':
         print("❌ 警告: 未检测到音频处理工具，语音输入功能可能无法使用")
         print("   建议安装: pip install pydub")
 
+    print("\n=== 系统状态 ===")
+    print(f"Python编程助手: {'✅ 已初始化' if python_agent else '❌ 未初始化'}")
+    print(f"增强PDF处理器: {'✅ 已初始化' if enhanced_handbook else '❌ 未初始化'}")
+    if enhanced_handbook:
+        print(f"PDF图片数量: {len(enhanced_handbook.images_cache)}")
+    
     app.run(host='0.0.0.0', port=5007, debug=True)
