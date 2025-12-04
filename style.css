@@ -353,7 +353,8 @@ body {
 }
 
 .copy-btn.copied i::before {
-    content: "\f00c"; /* fa-check */
+    content: "\f00c";
+    /* fa-check */
 }
 
 /* 代码块复制按钮 */
@@ -404,7 +405,8 @@ body {
 }
 
 .code-copy-btn.copied i::before {
-    content: "\f00c"; /* fa-check */
+    content: "\f00c";
+    /* fa-check */
 }
 
 .btn-text {
@@ -489,9 +491,11 @@ body {
     0% {
         box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
     }
+
     70% {
         box-shadow: 0 0 0 10px rgba(239, 68, 68, 0);
     }
+
     100% {
         box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
     }
@@ -513,6 +517,7 @@ body {
         opacity: 0;
         transform: translateY(-10px);
     }
+
     to {
         opacity: 1;
         transform: translateY(0);
@@ -533,10 +538,13 @@ body {
 }
 
 @keyframes recordingPulse {
-    0%, 100% {
+
+    0%,
+    100% {
         transform: scale(1);
         color: var(--primary);
     }
+
     50% {
         transform: scale(1.1);
         color: var(--danger);
@@ -576,7 +584,8 @@ body {
         gap: 4px;
     }
 
-    .voice-btn, .send-btn {
+    .voice-btn,
+    .send-btn {
         width: 40px;
         height: 40px;
     }
@@ -824,6 +833,7 @@ body {
         opacity: 0;
         transform: translateY(10px);
     }
+
     to {
         opacity: 1;
         transform: translateY(0);
@@ -1188,10 +1198,14 @@ body {
 }
 
 @keyframes typing {
-    0%, 60%, 100% {
+
+    0%,
+    60%,
+    100% {
         transform: translateY(0);
         opacity: 0.4;
     }
+
     30% {
         transform: translateY(-5px);
         opacity: 1;
@@ -1546,7 +1560,8 @@ body {
     }
 
     .input-field {
-        font-size: 16px; /* 至少16px防止iOS Safari自动放大 */
+        font-size: 16px;
+        /* 至少16px防止iOS Safari自动放大 */
     }
 
     .input-actions {
@@ -1576,7 +1591,8 @@ body {
 
     .tool-input,
     .tool-input-text {
-        font-size: 16px; /* 至少16px防止iOS Safari自动放大 */
+        font-size: 16px;
+        /* 至少16px防止iOS Safari自动放大 */
     }
 
     .tool-icon {
@@ -1641,7 +1657,8 @@ body {
     }
 
     .code-block-header {
-        opacity: 1; /* 移动端始终显示复制按钮 */
+        opacity: 1;
+        /* 移动端始终显示复制按钮 */
         top: 4px;
         right: 4px;
     }
@@ -1713,7 +1730,8 @@ body {
 
     .input-field {
         padding: 12px;
-        font-size: 16px; /* 至少16px防止iOS Safari自动放大 */
+        font-size: 16px;
+        /* 至少16px防止iOS Safari自动放大 */
     }
 
     .send-btn {
@@ -1731,7 +1749,8 @@ body {
 
     .tool-input,
     .tool-input-text {
-        font-size: 16px; /* 至少16px防止iOS Safari自动放大 */
+        font-size: 16px;
+        /* 至少16px防止iOS Safari自动放大 */
     }
 
     .message-avatar {
@@ -1842,34 +1861,35 @@ body {
 
 /* 打印样式 */
 @media print {
+
     .mobile-header,
     .mobile-bottom-nav,
     .input-container,
     .header-actions {
         display: none !important;
     }
-    
+
     .app-container {
         flex-direction: column;
         padding: 0;
     }
-    
+
     .sidebar {
         position: static;
         width: 100%;
         height: auto;
     }
-    
+
     .main-content {
         width: 100%;
         margin-left: 0;
     }
-    
+
     body {
         background: white;
         color: black;
     }
-    
+
     .message-content {
         background: #f5f5f5 !important;
         color: black !important;
@@ -1879,6 +1899,7 @@ body {
 
 /* 可访问性改进 */
 @media (prefers-reduced-transparency: reduce) {
+
     .sidebar,
     .message-content,
     .tool-card {
@@ -1933,6 +1954,7 @@ body {
         opacity: 0;
         transform: translateY(-20px);
     }
+
     to {
         opacity: 1;
         transform: translateY(0);
@@ -2194,8 +2216,10 @@ body {
     margin: 0 auto;
     height: calc(100vh - 80px);
     overflow-y: auto;
-    overflow-x: hidden; /* 禁止横向滚动 */
-    box-sizing: border-box; /* 确保padding包含在宽度内 */
+    overflow-x: hidden;
+    /* 禁止横向滚动 */
+    box-sizing: border-box;
+    /* 确保padding包含在宽度内 */
 }
 
 .crawler-header {
@@ -2227,7 +2251,8 @@ body {
     display: flex;
     gap: 12px;
     align-items: flex-end;
-    flex-wrap: wrap; /* 允许换行 */
+    flex-wrap: wrap;
+    /* 允许换行 */
 }
 
 .url-input-group label {
@@ -2235,12 +2260,14 @@ body {
     font-weight: 500;
     margin-bottom: 8px;
     display: block;
-    width: 100%; /* 标签单独一行 */
+    width: 100%;
+    /* 标签单独一行 */
 }
 
 .url-input {
     flex: 1;
-    min-width: 300px; /* 最小宽度 */
+    min-width: 300px;
+    /* 最小宽度 */
     padding: 12px 16px;
     background: var(--dark-1);
     border: 1px solid var(--dark-3);
@@ -2271,7 +2298,8 @@ body {
     display: flex;
     align-items: center;
     gap: 8px;
-    white-space: nowrap; /* 按钮文字不换行 */
+    white-space: nowrap;
+    /* 按钮文字不换行 */
 }
 
 .crawler-button:hover:not(:disabled) {
@@ -2300,7 +2328,8 @@ body {
     align-items: center;
     padding: 20px 24px;
     border-bottom: 1px solid var(--dark-3);
-    flex-wrap: wrap; /* 允许标题和按钮换行 */
+    flex-wrap: wrap;
+    /* 允许标题和按钮换行 */
     gap: 16px;
 }
 
@@ -2315,7 +2344,8 @@ body {
 .result-actions {
     display: flex;
     gap: 8px;
-    flex-wrap: wrap; /* 按钮换行 */
+    flex-wrap: wrap;
+    /* 按钮换行 */
 }
 
 .result-content {
@@ -2330,7 +2360,8 @@ body {
     background: var(--dark-1);
     border-radius: 6px;
     border-left: 4px solid var(--primary);
-    word-break: break-all; /* URL长时自动换行 */
+    word-break: break-all;
+    /* URL长时自动换行 */
     overflow-wrap: break-word;
 }
 
@@ -2356,8 +2387,10 @@ body {
     padding: 16px;
     max-height: 400px;
     overflow-y: auto;
-    overflow-x: auto; /* 代码区域允许横向滚动 */
-    white-space: pre-wrap; /* 关键：长文本自动换行 */
+    overflow-x: auto;
+    /* 代码区域允许横向滚动 */
+    white-space: pre-wrap;
+    /* 关键：长文本自动换行 */
     word-wrap: break-word;
     word-break: break-all;
 }
@@ -2366,7 +2399,8 @@ body {
     font-family: 'Courier New', monospace;
     font-size: 14px;
     line-height: 1.4;
-    white-space: pre-wrap; /* 关键：代码自动换行 */
+    white-space: pre-wrap;
+    /* 关键：代码自动换行 */
     word-wrap: break-word;
     word-break: break-all;
     display: block;
@@ -2398,7 +2432,8 @@ body {
     color: var(--light-2);
     position: relative;
     padding-left: 24px;
-    word-break: break-word; /* 列表项文字换行 */
+    word-break: break-word;
+    /* 列表项文字换行 */
 }
 
 .info-card li:before {
@@ -2431,7 +2466,8 @@ body {
     }
 
     .url-input {
-        min-width: auto; /* 移动端取消最小宽度 */
+        min-width: auto;
+        /* 移动端取消最小宽度 */
         width: 100%;
     }
 
@@ -2448,7 +2484,8 @@ body {
 
     .preview-container pre,
     .preview-container code {
-        font-size: 12px; /* 移动端字体稍小 */
+        font-size: 12px;
+        /* 移动端字体稍小 */
     }
 }
 
@@ -2463,4 +2500,79 @@ body {
 [data-theme="light"] .preview-container,
 [data-theme="light"] .url-info {
     background: var(--dark-1);
+}
+
+.user-uploaded-image,
+.handbook-image {
+    max-width: 100%;
+    margin: 10px 0;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.user-uploaded-image img,
+.handbook-image img {
+    max-width: 100%;
+    display: block;
+}
+
+.image-caption {
+    padding: 8px;
+    background: #f5f5f5;
+    font-size: 12px;
+    color: #666;
+    text-align: center;
+}
+
+.image-preview-container {
+    margin-top: 10px;
+    border: 2px dashed #ddd;
+    border-radius: 8px;
+    padding: 10px;
+    background: #f9f9f9;
+}
+
+.preview-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+    font-weight: 500;
+}
+
+.remove-preview-btn {
+    background: #ff4444;
+    color: white;
+    border: none;
+    border-radius: 50%;
+    width: 24px;
+    height: 24px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#previewImage {
+    max-width: 100%;
+    max-height: 200px;
+    border-radius: 4px;
+}
+
+.image-btn {
+    background: #4CAF50;
+    color: white;
+    border: none;
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.image-btn:hover {
+    background: #45a049;
 }
