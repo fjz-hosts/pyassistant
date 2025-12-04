@@ -56,7 +56,7 @@ function initCopyButtons() {
             const messageText = messageContent.querySelector('.message-text');
             copyToClipboard(messageText.innerText, copyBtn);
         }
-        
+
         if (e.target.closest('.code-copy-btn')) {
             const codeCopyBtn = e.target.closest('.code-copy-btn');
             const codeBlock = codeCopyBtn.closest('.code-block-wrapper').querySelector('code');
@@ -70,14 +70,14 @@ function copyToClipboard(text, button) {
         const originalHTML = button.innerHTML;
         const originalText = button.querySelector('.btn-text');
         const originalBtnText = originalText ? originalText.textContent : '';
-        
+
         button.classList.add('copied');
         if (originalText) {
             originalText.textContent = '已复制';
         } else {
             button.innerHTML = '<i class="fas fa-check"></i><span class="btn-text">已复制</span>';
         }
-        
+
         setTimeout(() => {
             button.classList.remove('copied');
             if (originalText) {
@@ -96,22 +96,22 @@ function addCopyButtonToCodeBlocks() {
     document.querySelectorAll('pre code').forEach(codeBlock => {
         const preElement = codeBlock.closest('pre');
         if (!preElement) return;
-        
+
         if (preElement.parentElement.classList.contains('code-block-wrapper')) {
             return;
         }
-        
+
         const wrapper = document.createElement('div');
         wrapper.className = 'code-block-wrapper';
-        
+
         const header = document.createElement('div');
         header.className = 'code-block-header';
-        
+
         const copyBtn = document.createElement('button');
         copyBtn.className = 'code-copy-btn';
         copyBtn.innerHTML = '<i class="fas fa-copy"></i><span class="btn-text">复制代码</span>';
         copyBtn.title = '复制代码';
-        
+
         header.appendChild(copyBtn);
         wrapper.appendChild(header);
         preElement.parentNode.insertBefore(wrapper, preElement);
@@ -128,7 +128,7 @@ function initTheme() {
 function setTheme(theme) {
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('pyassistant-theme', theme);
-    
+
     if (theme === 'light') {
         themeText.textContent = '深色主题';
         themeIcon.className = 'fas fa-moon';
@@ -136,7 +136,7 @@ function setTheme(theme) {
         themeText.textContent = '浅色主题';
         themeIcon.className = 'fas fa-sun';
     }
-    
+
     setTimeout(() => {
         document.querySelectorAll('pre code').forEach((block) => {
             hljs.highlightElement(block);
@@ -175,15 +175,15 @@ document.querySelectorAll('.nav-item').forEach(item => {
 document.querySelectorAll('.mobile-bottom-nav .nav-item').forEach(item => {
     item.addEventListener('click', function() {
         const tab = this.getAttribute('data-tab');
-        
+
         if (tab) {
             document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
             document.querySelectorAll(`.nav-item[data-tab="${tab}"]`).forEach(i => i.classList.add('active'));
-            
+
             document.getElementById('chatTab').style.display = tab === 'chat' ? 'flex' : 'none';
             document.getElementById('toolsTab').style.display = tab === 'tools' ? 'block' : 'none';
             document.getElementById('crawlerTab').style.display = tab === 'crawler' ? 'block' : 'none';
-            
+
             if (window.innerWidth <= 768) {
                 sidebar.classList.remove('active');
             }
@@ -1655,11 +1655,11 @@ function searchHandbook(query) {
 function enhanceQuestionWithHandbook(question) {
     const basicConcepts = ['是什么', '什么是', '定义', '概念', '介绍', '讲解', '说明', '含义'];
     const hasBasicConcept = basicConcepts.some(concept => question.includes(concept));
-    
+
     if (hasBasicConcept) {
         console.log('检测到基础概念问题，将在回答中参考手册内容');
     }
-    
+
     return question;
 }
 
@@ -1686,13 +1686,13 @@ startCrawlerBtn.addEventListener('click', function () {
         alert('请输入要爬取的网址');
         return;
     }
-    
+
     // 验证URL格式
     if (!isValidUrl(url)) {
         alert('请输入有效的网址格式（如：https://example.com）');
         return;
     }
-    
+
     startWebCrawler(url);
 });
 
@@ -1707,7 +1707,7 @@ urlInput.addEventListener('keypress', function (e) {
 copyResultBtn.addEventListener('click', function () {
     const content = markdownContent.innerText;
     copyToClipboard(content, copyResultBtn);
-    
+
     // 临时修改按钮文本
     const originalText = copyResultBtn.innerHTML;
     copyResultBtn.innerHTML = '<i class="fas fa-check"></i> 已复制';
@@ -1720,9 +1720,9 @@ copyResultBtn.addEventListener('click', function () {
 sendToChatBtn.addEventListener('click', function () {
     const content = markdownContent.innerText;
     const url = resultUrl.innerText;
-    
+
     document.querySelector('.nav-item[data-tab="chat"]').click();
-    
+
     const resultHtml = `
 <div class="crawler-chat-result">
     <div class="crawler-header">
@@ -1737,9 +1737,9 @@ sendToChatBtn.addEventListener('click', function () {
     </div>
 </div>
     `;
-    
+
     addMessage('system', resultHtml, 'html');
-    
+
     // 高亮代码
     setTimeout(() => {
         document.querySelectorAll('pre code').forEach((block) => {
@@ -1762,7 +1762,7 @@ function startWebCrawler(url) {
     // 显示加载状态
     startCrawlerBtn.disabled = true;
     startCrawlerBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 爬取中...';
-    
+
     fetch('/web_crawler', {
         method: 'POST',
         headers: {
@@ -1775,21 +1775,21 @@ function startWebCrawler(url) {
         // 恢复按钮状态
         startCrawlerBtn.disabled = false;
         startCrawlerBtn.innerHTML = '<i class="fas fa-spider"></i> 开始爬取';
-        
+
         if (data.success) {
             // 显示爬取结果
             resultUrl.textContent = url;
             markdownContent.textContent = data.result;
             crawlerResults.style.display = 'block';
-            
+
             // 滚动到结果区域
             crawlerResults.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            
+
             // 高亮Markdown代码
             setTimeout(() => {
                 hljs.highlightElement(markdownContent);
             }, 100);
-            
+
         } else {
             // 显示错误信息
             alert(`爬取失败：${data.error || '未知错误'}`);
@@ -1801,4 +1801,263 @@ function startWebCrawler(url) {
         startCrawlerBtn.innerHTML = '<i class="fas fa-spider"></i> 开始爬取';
         alert(`网络错误：${error.message || '网络连接失败'}`);
     });
+}
+
+// 图片上传相关变量
+let currentImageBase64 = null;
+let currentImageFile = null;
+
+// 图片上传按钮事件
+document.getElementById('imageUploadButton').addEventListener('click', function() {
+    document.getElementById('imageFileInput').click();
+});
+
+// 文件选择事件
+document.getElementById('imageFileInput').addEventListener('change', function(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    // 检查文件类型
+    if (!file.type.match('image.*')) {
+        alert('请选择图片文件');
+        return;
+    }
+    
+    // 检查文件大小（10MB）
+    if (file.size > 10 * 1024 * 1024) {
+        alert('图片大小不能超过10MB');
+        return;
+    }
+    
+    currentImageFile = file;
+    
+    // 预览图片
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        currentImageBase64 = e.target.result.split(',')[1]; // 去掉data:image/...;base64,前缀
+        document.getElementById('previewImage').src = e.target.result;
+        document.getElementById('imagePreviewContainer').style.display = 'block';
+    };
+    reader.readAsDataURL(file);
+});
+
+// 移除预览
+document.getElementById('removePreviewBtn').addEventListener('click', function() {
+    document.getElementById('imagePreviewContainer').style.display = 'none';
+    document.getElementById('previewImage').src = '';
+    document.getElementById('imageFileInput').value = '';
+    currentImageBase64 = null;
+    currentImageFile = null;
+});
+
+// 修改sendMessage函数，支持图片上传
+function sendMessage() {
+    if (!isLoggedIn) {
+        showLoginModal();
+        return;
+    }
+
+    const message = questionInput.value.trim();
+    if (!message && !currentImageBase64) {
+        alert('请输入问题或上传图片');
+        return;
+    }
+
+    // 如果有图片，先上传图片
+    if (currentImageFile) {
+        uploadImageAndSend(message);
+    } else {
+        sendTextMessage(message);
+    }
+}
+
+function uploadImageAndSend(message) {
+    const formData = new FormData();
+    formData.append('image', currentImageFile);
+    
+    // 显示上传状态
+    const originalButtonText = sendButton.innerHTML;
+    sendButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+    sendButton.disabled = true;
+    
+    fetch('/upload_image', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // 图片上传成功，发送带图片的问题
+            sendMessageWithImage(message, data.image_base64);
+        } else {
+            alert('图片上传失败: ' + (data.error || '未知错误'));
+        }
+    })
+    .catch(error => {
+        console.error('上传图片失败:', error);
+        alert('图片上传失败，请重试');
+    })
+    .finally(() => {
+        sendButton.innerHTML = originalButtonText;
+        sendButton.disabled = false;
+    });
+}
+
+function sendMessageWithImage(message, imageBase64) {
+    const welcomeMessage = document.querySelector('.welcome-message');
+    if (welcomeMessage) {
+        welcomeMessage.remove();
+    }
+
+    // 显示用户消息（包含图片）
+    const imageMessage = `
+        <div class="user-uploaded-image">
+            <img src="${imageBase64}" alt="用户上传的图片" />
+            <div class="image-caption">用户上传的图片</div>
+        </div>
+    `;
+    
+    addMessage('user', message + imageMessage, 'html');
+    
+    // 清空输入
+    questionInput.value = '';
+    questionInput.style.height = 'auto';
+    document.getElementById('imagePreviewContainer').style.display = 'none';
+    document.getElementById('imageFileInput').value = '';
+    currentImageBase64 = null;
+    currentImageFile = null;
+    
+    showTypingIndicator();
+    
+    // 发送带图片的请求
+    fetch('/ask_with_image', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+            question: message,
+            image: imageBase64.split(',')[1] // 去掉data:前缀
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        removeTypingIndicator();
+        
+        if (data.success) {
+            const processedAnswer = processAiContent(data.answer);
+            addMessage('assistant', processedAnswer, 'html');
+            loadChatHistory();
+        } else {
+            if (data.error && data.error.includes('请先登录')) {
+                showLoginModal();
+            } else {
+                addMessage('system', `错误: ${data.error}`, 'text');
+            }
+        }
+    })
+    .catch(error => {
+        removeTypingIndicator();
+        addMessage('system', `网络错误: ${error}`, 'text');
+    });
+}
+
+function sendTextMessage(message) {
+    // ... 原有的文本消息发送逻辑 ...
+}
+
+// 增强搜索功能
+document.getElementById('enhancedSearch').addEventListener('click', function() {
+    const query = prompt('请输入要搜索的关键词:');
+    if (query) {
+        enhancedSearch(query);
+    }
+});
+
+function enhancedSearch(query) {
+    showTypingIndicator();
+    
+    fetch('/enhanced_search', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ query: query })
+    })
+    .then(response => response.json())
+    .then(data => {
+        removeTypingIndicator();
+        
+        if (data.success) {
+            let resultHtml = `
+                <div class="search-results">
+                    <h3>🔍 搜索结果: "${query}"</h3>
+                    <p>找到 ${data.total_found} 条相关内容</p>
+            `;
+            
+            // 显示文本结果
+            if (data.text_results && data.text_results.length > 0) {
+                resultHtml += '<h4>📖 文本内容:</h4>';
+                data.text_results.forEach((result, index) => {
+                    resultHtml += `
+                        <div class="search-item">
+                            <div class="result-type">${result.type === 'section' ? '📑' : '📝'}</div>
+                            <div class="result-content">
+                                <strong>${result.title || '相关内容'}</strong>
+                                <p>${result.content}</p>
+                                ${result.page ? `<small>第 ${result.page} 页</small>` : ''}
+                            </div>
+                        </div>
+                    `;
+                });
+            }
+            
+            // 显示图片结果
+            if (data.image_results && data.image_results.length > 0) {
+                resultHtml += '<h4>🖼️ 相关图片:</h4>';
+                resultHtml += '<div class="image-results">';
+                data.image_results.forEach((image, index) => {
+                    resultHtml += `
+                        <div class="handbook-image">
+                            <img src="data:image/jpeg;base64,${image.base64}" alt="${image.caption}" />
+                            <div class="image-caption">${image.caption} (第${image.page}页)</div>
+                        </div>
+                    `;
+                });
+                resultHtml += '</div>';
+            }
+            
+            resultHtml += '</div>';
+            
+            addMessage('assistant', resultHtml, 'html');
+        } else {
+            addMessage('system', `搜索失败: ${data.error}`, 'text');
+        }
+    })
+    .catch(error => {
+        removeTypingIndicator();
+        addMessage('system', `搜索错误: ${error}`, 'text');
+    });
+}
+
+// 修改processAiContent函数，支持手册图片显示
+function processAiContent(content) {
+    let processedContent = decodeHtmlEntities(content);
+    
+    // 处理[IMAGE]标签
+    const imageRegex = /\[IMAGE:([^\]]+)\]([\s\S]*?)\[\/IMAGE\]/g;
+    processedContent = processedContent.replace(imageRegex, function(match, caption, base64) {
+        return `
+            <div class="handbook-image">
+                <img src="data:image/jpeg;base64,${base64.trim()}" alt="${caption}" />
+                <div class="image-caption">${caption}</div>
+            </div>
+        `;
+    });
+    
+    // 原有的代码高亮处理
+    processedContent = processedContent.replace(/```python\s*([\s\S]*?)```/g, '<pre><code class="language-python">$1</code></pre>');
+    processedContent = processedContent.replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
+    
+    return processedContent;
 }
