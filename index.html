@@ -1,6 +1,5 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -8,11 +7,10 @@
     <link href="{{ url_for('static', filename='pyassistant.png') }}" rel="icon">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet"
-        href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/atom-one-dark.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/atom-one-dark.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" integrity="sha384-n8MVd4RsNIU0tAv4ct0nTaAbDJwPJzDEaqSD1odI+WdtXRGWt2kTvGFasHpSy3SV" crossorigin="anonymous">
     <link href="{{ url_for('static', filename='style.css') }}" rel="stylesheet">
 </head>
-
 <body>
     <!-- 移动端顶部栏 -->
     <div class="mobile-header">
@@ -49,6 +47,10 @@
                 <div class="nav-item" data-tab="tools">
                     <i class="fas fa-tools"></i>
                     <span>代码工具</span>
+                </div>
+                <div class="nav-item" data-tab="documentation">
+                    <i class="fas fa-book"></i>
+                    <span>文档查询</span>
                 </div>
                 <div class="nav-item" data-tab="crawler">
                     <i class="fas fa-spider"></i>
@@ -105,38 +107,37 @@
             <div class="chat-container" id="chatTab">
                 <div class="chat-messages" id="chatMessages">
                     {% if logged_in and chat_history %}
-                    <!-- 如果有对话历史，显示历史消息 -->
-                    {% for msg in chat_history %}
-                    <div class="message {{ msg.role }}">
-                        <div class="message-avatar">
-                            <i
-                                class="fas {% if msg.role == 'user' %}fa-user{% elif msg.role == 'assistant' %}fa-robot{% else %}fa-info-circle{% endif %}"></i>
-                        </div>
-                        <div class="message-content">
-                            {% if msg.role == 'assistant' %}
-                            <div class="message-header">
-                                <div class="message-actions">
-                                    <button class="copy-btn" title="复制整个回答">
-                                        <i class="fas fa-copy"></i>
-                                        <span class="btn-text">复制</span>
-                                    </button>
+                        <!-- 如果有对话历史，显示历史消息 -->
+                        {% for msg in chat_history %}
+                            <div class="message {{ msg.role }}">
+                                <div class="message-avatar">
+                                    <i class="fas {% if msg.role == 'user' %}fa-user{% elif msg.role == 'assistant' %}fa-robot{% else %}fa-info-circle{% endif %}"></i>
+                                </div>
+                                <div class="message-content">
+                                    {% if msg.role == 'assistant' %}
+                                    <div class="message-header">
+                                        <div class="message-actions">
+                                            <button class="copy-btn" title="复制整个回答">
+                                                <i class="fas fa-copy"></i>
+                                                <span class="btn-text">复制</span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    {% endif %}
+                                    <div class="message-text">
+                                        {% if msg.type == 'html' %}
+                                            {{ msg.message|unescape|safe }}
+                                        {% else %}
+                                            {{ msg.message|unescape|replace('\n', '<br>')|safe }}
+                                        {% endif %}
+                                    </div>
+                                    <div class="message-time">{{ msg.timestamp }}</div>
                                 </div>
                             </div>
-                            {% endif %}
-                            <div class="message-text">
-                                {% if msg.type == 'html' %}
-                                {{ msg.message|unescape|safe }}
-                                {% else %}
-                                {{ msg.message|unescape|replace('\n', '<br>')|safe }}
-                                {% endif %}
-                            </div>
-                            <div class="message-time">{{ msg.timestamp }}</div>
-                        </div>
-                    </div>
-                    {% endfor %}
+                        {% endfor %}
                     {% else %}
-                    <!-- 欢迎消息 -->
-                    <div class="welcome-message">
+                        <!-- 欢迎消息 -->
+                        <div class="welcome-message">
                         <div class="welcome-icon">
                             <i class="fas fa-robot"></i>
                         </div>
@@ -164,6 +165,10 @@
                                 <span>语音输入</span>
                             </div>
                             <div class="feature-item">
+                                <i class="fas fa-image"></i>
+                                <span>图像上传</span>
+                            </div>
+                            <div class="feature-item">
                                 <i class="fas fa-palette"></i>
                                 <span>主题切换</span>
                             </div>
@@ -176,10 +181,6 @@
                     <div class="input-box">
                         <textarea class="input-field" id="questionInput" placeholder="输入您的Python编程问题..."></textarea>
                         <div class="input-buttons">
-                            <!-- 图片上传按钮 -->
-                            <button class="image-btn" id="imageUploadButton" title="上传图片">
-                                <i class="fas fa-image"></i>
-                            </button>
                             <button class="voice-btn" id="voiceButton" title="语音输入">
                                 <i class="fas fa-microphone"></i>
                             </button>
@@ -188,29 +189,14 @@
                             </button>
                         </div>
                     </div>
-
-                    <!-- 图片预览区域 -->
-                    <div class="image-preview-container" id="imagePreviewContainer" style="display: none;">
-                        <div class="preview-header">
-                            <span>图片预览</span>
-                            <button class="remove-preview-btn" id="removePreviewBtn">
-                                <i class="fas fa-times"></i>
-                            </button>
-                        </div>
-                        <img id="previewImage" src="" alt="预览图片" />
-                    </div>
-
-                    <!-- 隐藏的文件输入 -->
-                    <input type="file" id="imageFileInput" accept="image/*" style="display: none;" />
-
                     <div class="input-actions">
                         <button class="action-btn" id="insertCode">
                             <i class="fas fa-code"></i>
                             插入代码
                         </button>
-                        <button class="action-btn" id="enhancedSearch">
-                            <i class="fas fa-search"></i>
-                            搜索手册
+                        <button class="action-btn" id="exampleQuestions">
+                            <i class="fas fa-question-circle"></i>
+                            示例问题
                         </button>
                         <button class="action-btn" id="syntaxCheck">
                             <i class="fas fa-check-circle"></i>
@@ -223,6 +209,10 @@
                         <button class="action-btn" id="voiceInput">
                             <i class="fas fa-microphone"></i>
                             语音输入
+                        </button>
+                        <button class="action-btn" id="imageUploadBtn">
+                            <i class="fas fa-image"></i>
+                            上传图像
                         </button>
                     </div>
                 </div>
@@ -269,34 +259,21 @@
                             分析代码
                         </button>
                     </div>
-
-                    <div class="tool-card" data-tool="documentation">
-                        <div class="tool-icon">
-                            <i class="fas fa-book"></i>
-                        </div>
-                        <h3>文档查询</h3>
-                        <p>查询Python相关主题的详细文档和示例</p>
-                        <input type="text" class="tool-input-text" placeholder="输入查询主题（如：装饰器、列表推导式）..." id="docInput">
-                        <button class="tool-button" id="docSearchBtn">
-                            <i class="fas fa-search"></i>
-                            查询文档
-                        </button>
-                    </div>
                 </div>
             </div>
 
-            <!-- Python爬虫界面 - 修复位置 -->
+            <!-- Python爬虫界面 -->
             <div class="crawler-container" id="crawlerTab" style="display: none;">
                 <div class="crawler-header">
                     <h2><i class="fas fa-spider"></i> Python网页爬虫</h2>
                     <p>使用Firecrawl API快速抓取网页内容并转换为Markdown格式</p>
                 </div>
-
+                
                 <div class="crawler-controls">
                     <div class="url-input-group">
                         <label for="urlInput">目标网址：</label>
-                        <input type="url" class="url-input" id="urlInput" placeholder="请输入要爬取的网址（如：https://example.com）"
-                            required>
+                        <input type="url" class="url-input" id="urlInput" 
+                               placeholder="请输入要爬取的网址（如：https://example.com）" required>
                         <button class="crawler-button" id="startCrawlerBtn">
                             <i class="fas fa-spider"></i>
                             开始爬取
@@ -316,7 +293,7 @@
                             </button>
                         </div>
                     </div>
-
+                    
                     <div class="result-content">
                         <div class="url-info">
                             <strong>目标网址：</strong> <span id="resultUrl"></span>
@@ -342,23 +319,69 @@
                     </div>
                 </div>
             </div>
+            <div class="documentation-container" id="documentationTab" style="display: none;">
+                <div class="documentation-header">
+                    <h2><i class="fas fa-book"></i> Python-100-Days 文档查询</h2>
+                    <p>浏览和搜索 Python-100-Days 项目中的所有 Markdown 文档</p>
+                    <div class="documentation-search">
+                        <input type="text" id="docSearchInput" placeholder="搜索文档内容...">
+                        <button id="docSearchBtn">
+                            <i class="fas fa-search"></i> 搜索
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="documentation-content">
+                    <div class="doc-sidebar">
+                        <h3><i class="fas fa-folder-open"></i> 文档列表</h3>
+                        <div class="doc-list" id="docList">
+                            <!-- 文档列表将通过JavaScript动态加载 -->
+                            <div class="loading-docs">
+                                <i class="fas fa-spinner fa-spin"></i> 加载文档列表中...
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="doc-main">
+                        <div class="doc-toolbar">
+                            <button class="btn btn-outline btn-sm" id="docBackBtn" style="display: none;">
+                                <i class="fas fa-arrow-left"></i> 返回列表
+                            </button>
+                            <button class="btn btn-outline btn-sm" id="docRefreshBtn">
+                                <i class="fas fa-sync-alt"></i> 刷新
+                            </button>
+                            <div class="doc-path" id="docPath">请选择左侧文档进行查看</div>
+                        </div>
+                        
+                        <div class="doc-viewer" id="docViewer">
+                            <div class="welcome-doc">
+                                <div class="doc-icon">
+                                    <i class="fas fa-book-open"></i>
+                                </div>
+                                <div class="doc-title">欢迎使用文档查询</div>
+                                <div class="doc-subtitle">
+                                    从左侧选择 Python-100-Days 项目中的 Markdown 文档进行查看
+                                </div>
+                                <div class="doc-stats">
+                                    <div class="stat-item">
+                                        <i class="fas fa-file-alt"></i>
+                                        <span id="totalDocs">加载中...</span> 个文档
+                                    </div>
+                                    <div class="stat-item">
+                                        <i class="fas fa-images"></i>
+                                        <span id="totalImages">加载中...</span> 张图片
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
     <!-- 移动端底部导航 -->
     <div class="mobile-bottom-nav">
-        <div class="nav-item" data-tab="chat">
-            <i class="fas fa-comments"></i>
-            <span>对话</span>
-        </div>
-        <div class="nav-item" data-tab="tools">
-            <i class="fas fa-tools"></i>
-            <span>工具</span>
-        </div>
-        <div class="nav-item" data-tab="crawler">
-            <i class="fas fa-spider"></i>
-            <span>爬虫</span>
-        </div>
         <div class="nav-item" id="mobileInsertCode">
             <i class="fas fa-code"></i>
             <span>代码</span>
@@ -367,9 +390,9 @@
             <i class="fas fa-question-circle"></i>
             <span>示例</span>
         </div>
-        <div class="nav-item" id="mobileVoiceInput">
-            <i class="fas fa-microphone"></i>
-            <span>语音</span>
+        <div class="nav-item" id="mobileImageUpload">
+            <i class="fas fa-image"></i>
+            <span>图像</span>
         </div>
     </div>
 
@@ -387,7 +410,7 @@
                     <button class="auth-tab active" id="loginTab">登录</button>
                     <button class="auth-tab" id="registerTab">注册</button>
                 </div>
-
+                
                 <form id="loginForm" class="auth-form">
                     <div class="form-group">
                         <label for="loginUsername">用户名</label>
@@ -400,7 +423,7 @@
                     <button type="submit" class="btn btn-primary btn-block">登录</button>
                     <div id="loginError" class="error-message" style="display: none;"></div>
                 </form>
-
+                
                 <form id="registerForm" class="auth-form" style="display: none;">
                     <div class="form-group">
                         <label for="registerUsername">用户名</label>
@@ -421,14 +444,86 @@
         </div>
     </div>
 
+    <!-- 图像上传界面 -->
+    <div class="image-upload-container" id="imageUploadContainer" style="display: none;">
+        <div class="upload-header">
+            <h4><i class="fas fa-image"></i> 上传图像</h4>
+            <button class="close-upload" id="closeUpload">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div class="upload-body">
+            <div class="upload-area" id="dropArea">
+                <i class="fas fa-cloud-upload-alt"></i>
+                <p>拖放图像文件到这里，或</p>
+                <button class="btn btn-outline" id="browseImageBtn">
+                    选择文件
+                </button>
+                <input type="file" id="imageFileInput" accept="image/*" style="display: none;">
+                <p class="upload-hint">支持 PNG, JPG, GIF, BMP, WebP 格式，最大5MB</p>
+            </div>
+            <div class="preview-container" id="imagePreview" style="display: none;">
+                <div class="preview-header">
+                    <span>预览</span>
+                    <button class="btn btn-sm btn-outline" id="removePreview">
+                        <i class="fas fa-trash"></i> 移除
+                    </button>
+                </div>
+                <div class="preview-image">
+                    <img id="previewImage" src="" alt="预览图像">
+                </div>
+                <div class="preview-info">
+                    <p id="previewName"></p>
+                    <p id="previewSize"></p>
+                </div>
+            </div>
+        </div>
+        <div class="upload-footer">
+            <button class="btn btn-outline" id="cancelUpload">
+                取消
+            </button>
+            <button class="btn btn-primary" id="confirmUpload" disabled>
+                <i class="fas fa-upload"></i> 上传
+            </button>
+        </div>
+    </div>
+
+    <!-- 图像查看模态框 -->
+    <div class="image-modal-overlay" id="imageModal" style="display: none;">
+        <div class="image-modal-content">
+            <div class="modal-header">
+                <h3 id="modalImageTitle"></h3>
+                <button class="modal-close" onclick="closeImageModal()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <img id="modalImage" src="" alt="查看图像">
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" onclick="downloadModalImage()">
+                    <i class="fas fa-download"></i> 下载
+                </button>
+                <button class="btn btn-outline" onclick="copyModalImage()">
+                    <i class="fas fa-copy"></i> 复制
+                </button>
+                <button class="btn btn-primary" onclick="closeImageModal()">
+                    关闭
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- 用户信息显示 -->
     <div class="user-info" id="userInfo" style="display: none;">
         <div class="user-name" id="userName"></div>
         <button class="btn btn-outline btn-sm" id="logoutBtn">登出</button>
     </div>
 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/markdown-it/13.0.1/markdown-it.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js" integrity="sha384-XjKyOOlGwcjNTAIQHIpgOno0Hl1YQqzUOEleOLALmuqehneUG+vnGctmUb0ZY0l8" crossorigin="anonymous"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js" integrity="sha384-+VBxd3r6XgURycqtZ117nYw44OOcIax56Z4dCRWbxyPt0Koah1uHoK0o4+/RRE05" crossorigin="anonymous"></script>
     <script src="{{ url_for('static', filename='script.js') }}"></script>
 </body>
-
 </html>
