@@ -1,24 +1,19 @@
 # python_agent.py
 from langchain.tools import tool
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from dotenv import load_dotenv
-import json
 import ast
 import subprocess
 import sys
 import re
 import os
-import PyPDF2
 from typing import Optional, List, Dict, Set
 import logging
 from itertools import chain
 import base64
 import hashlib
 from pathlib import Path
-import fitz  # PyMuPDF
-import numpy as np
 
 CODE_FENCE_BLOCK = re.compile(r'```(?:python)?\s*([\s\S]+?)\s*```', re.IGNORECASE)
 BUILTIN_SYMBOLS = set(dir(__builtins__)) | {"self", "cls"}
@@ -288,49 +283,70 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-class EnhancedPDFHandbook:
-    """增强版PDF处理器，支持精确内容提取、图片识别和检索"""
+# Markdown处理器类
+class MarkdownHandbook:
+    """Markdown文档处理器，支持搜索Python-100-Days文件夹中的Markdown文件"""
     
-    def __init__(self, pdf_path: str):
-        self.pdf_path = pdf_path
-        self.doc = None
+    def __init__(self, base_path: str):
+        self.base_path = Path(base_path)
+        self.md_files = []  # 所有Markdown文件路径
         self.content_index = {}  # 关键词到位置的索引
         self.image_index = {}    # 图片到内容的映射
-        self.sections = {}       # 章节结构
-        self.text_cache = {}     # 页面文本缓存
-        self.images_cache = {}   # 图片缓存
-        self.load_pdf()
+        self.sections = {}       # 文件章节结构
+        self.text_cache = {}     # 文件文本缓存
+        self.images_cache = {}   # 图片缓存（本地图片）
+        self.load_markdown_files()
         
-    def load_pdf(self):
-        """加载并索引PDF内容"""
+    def load_markdown_files(self):
+        """加载所有Markdown文件"""
         try:
-            if not os.path.exists(self.pdf_path):
-                logger.warning(f"PDF文件不存在: {self.pdf_path}")
-                return
+            # 遍历文件夹，找到所有.md文件
+            for md_file in self.base_path.rglob("*.md"):
+                self.md_files.append(md_file)
+                self._index_file(md_file)
             
-            self.doc = fitz.open(self.pdf_path)
-            self._extract_content()
-            self._build_index()
-            self._extract_and_save_images()
-            logger.info(f"PDF加载成功: {len(self.doc)}页, 图片{len(self.images_cache)}张")
+            logger.info(f"加载了 {len(self.md_files)} 个Markdown文件")
+            self._build_global_index()
             
         except Exception as e:
-            logger.error(f"加载PDF失败: {e}")
+            logger.error(f"加载Markdown文件失败: {e}")
     
-    def _extract_content(self):
-        """提取PDF文本内容并建立结构"""
-        for page_num in range(len(self.doc)):
-            page = self.doc[page_num]
-            text = page.get_text("text")
-            self.text_cache[page_num] = text
+    def _index_file(self, md_path: Path):
+        """索引单个Markdown文件"""
+        try:
+            # 读取Markdown文件内容
+            content = md_path.read_text(encoding='utf-8', errors='ignore')
             
-            # 提取章节标题
-            if page_num == 0:
-                self._parse_sections_from_text(text)
+            # 相对路径作为键
+            rel_path = str(md_path.relative_to(self.base_path))
+            file_key = rel_path.replace('\\', '/')
+            
+            # 缓存文本内容
+            self.text_cache[file_key] = content
+            
+            # 提取章节结构
+            self._parse_sections(file_key, content)
+            
+            # 提取图片信息
+            self._extract_images(file_key, content, md_path)
+            
+            # 提取关键词
+            keywords = self._extract_keywords(content)
+            for keyword in keywords:
+                if keyword not in self.content_index:
+                    self.content_index[keyword] = []
+                self.content_index[keyword].append({
+                    'file': file_key,
+                    'content': content[:500],  # 截取前500字符
+                    'relevance': 'high'
+                })
+                
+        except Exception as e:
+            logger.error(f"索引文件 {md_path} 失败: {e}")
     
-    def _parse_sections_from_text(self, text: str):
-        """从文本中解析章节结构"""
-        lines = text.split('\n')
+    def _parse_sections(self, file_key: str, content: str):
+        """解析Markdown文件的章节结构"""
+        lines = content.split('\n')
         current_section = "简介"
         section_lines = []
         
@@ -339,60 +355,128 @@ class EnhancedPDFHandbook:
             if not line:
                 continue
             
-            # 改进的章节检测
-            if self._is_section_title(line):
+            # 检测Markdown标题（# 到 ######）
+            if line.startswith('#'):
+                # 保存上一个章节
                 if section_lines:
-                    self.sections[current_section] = '\n'.join(section_lines)
-                current_section = line
+                    section_key = f"{file_key}#{current_section}"
+                    self.sections[section_key] = '\n'.join(section_lines)
+                
+                # 提取新章节标题
+                # 移除#号和空格
+                current_section = line.lstrip('#').strip()
                 section_lines = []
             else:
                 section_lines.append(line)
         
+        # 保存最后一个章节
         if section_lines:
-            self.sections[current_section] = '\n'.join(section_lines)
+            section_key = f"{file_key}#{current_section}"
+            self.sections[section_key] = '\n'.join(section_lines)
     
-    def _is_section_title(self, text: str) -> bool:
-        """判断是否为章节标题"""
-        patterns = [
-            r'^第[一二三四五六七八九十\d]+[章节条]',
-            r'^[一二三四五六七八九十]+、',
-            r'^\d+\.\d+',
-            r'^[A-Z][A-Z\s]+$',
-            r'^#+ ',
-            r'^[【\[](.*?)[】\]]$'
-        ]
-        
-        for pattern in patterns:
-            if re.match(pattern, text):
-                return True
-        
-        # 长度和内容判断
-        if len(text) < 50 and any(keyword in text.lower() for keyword in 
-                                 ['概述', '简介', '基础', '进阶', '高级', '总结', '附录']):
-            return True
-        
-        return False
+    def _extract_images(self, file_key: str, content: str, md_path: Path):
+        """提取Markdown中的图片信息"""
+        try:
+            # 使用正则表达式匹配Markdown图片语法
+            # ![alt text](image_url "title")
+            img_pattern = r'!\[(.*?)\]\((.*?)(?:\s+"(.*?)")?\)'
+            
+            for match in re.finditer(img_pattern, content, re.IGNORECASE):
+                alt_text = match.group(1) or "图片"
+                img_url = match.group(2)
+                title = match.group(3) or alt_text
+                
+                # 处理图片路径
+                if img_url.startswith('http'):
+                    # 网络图片，直接使用URL
+                    img_key = f"web_{hashlib.md5(img_url.encode()).hexdigest()[:8]}"
+                    self.images_cache[img_key] = {
+                        'type': 'web',
+                        'url': img_url,
+                        'alt': alt_text,
+                        'title': title,
+                        'file': file_key,
+                        'base64': None  # 网络图片不转换为base64
+                    }
+                else:
+                    # 本地图片，需要处理相对路径
+                    img_path = self._resolve_image_path(img_url, md_path)
+                    if img_path and img_path.exists():
+                        # 转换为base64
+                        try:
+                            img_bytes = img_path.read_bytes()
+                            img_base64 = base64.b64encode(img_bytes).decode('utf-8')
+                            
+                            # 确定MIME类型
+                            ext = img_path.suffix.lower()
+                            mime_types = {
+                                '.png': 'image/png',
+                                '.jpg': 'image/jpeg',
+                                '.jpeg': 'image/jpeg',
+                                '.gif': 'image/gif',
+                                '.bmp': 'image/bmp',
+                                '.webp': 'image/webp'
+                            }
+                            mime_type = mime_types.get(ext, 'image/jpeg')
+                            
+                            img_key = f"local_{hashlib.md5(img_path.read_bytes()).hexdigest()[:8]}"
+                            self.images_cache[img_key] = {
+                                'type': 'local',
+                                'path': str(img_path),
+                                'url': img_url,
+                                'alt': alt_text,
+                                'title': title,
+                                'file': file_key,
+                                'base64': f'data:{mime_type};base64,{img_base64}'
+                            }
+                            
+                            # 建立图片索引
+                            keywords = self._extract_keywords(alt_text + ' ' + title)
+                            for keyword in keywords:
+                                if keyword not in self.image_index:
+                                    self.image_index[keyword] = []
+                                self.image_index[keyword].append(img_key)
+                                
+                        except Exception as e:
+                            logger.warning(f"无法读取图片 {img_path}: {e}")
+                    
+        except Exception as e:
+            logger.error(f"提取图片失败: {e}")
     
-    def _build_section_index(self):
-        """建立章节索引"""
-        for section, content in self.sections.items():
-            # 提取关键词
-            keywords = self._extract_keywords(content)
-            for keyword in keywords:
-                if keyword not in self.content_index:
-                    self.content_index[keyword] = []
-                self.content_index[keyword].append({
-                    'section': section,
-                    'content': content[:500],  # 截取前500字符
-                    'relevance': 'high'
-                })
+    def _resolve_image_path(self, img_url: str, md_path: Path):
+        """解析图片相对路径"""
+        try:
+            # 解码URL编码
+            import urllib.parse
+            img_url = urllib.parse.unquote(img_url)
+            
+            # 移除可能的查询参数
+            img_url = img_url.split('?')[0]
+            
+            # 处理不同的路径格式
+            if img_url.startswith('/'):
+                # 相对于项目根目录
+                return self.base_path / img_url.lstrip('/')
+            elif img_url.startswith('./'):
+                # 相对于当前文件
+                return md_path.parent / img_url[2:]
+            elif img_url.startswith('../'):
+                # 相对于上级目录
+                return md_path.parent / img_url
+            else:
+                # 假设相对于当前文件
+                return md_path.parent / img_url
+                
+        except Exception as e:
+            logger.error(f"解析图片路径失败 {img_url}: {e}")
+            return None
     
-    def _extract_keywords(self, text: str, max_keywords: int = 10) -> list:
+    def _extract_keywords(self, text: str, max_keywords: int = 10):
         """从文本中提取关键词"""
         # 移除停用词
         stop_words = {'的', '了', '和', '是', '在', '有', '就', '都', '而', '及', '与', '或', '等'}
         
-        # 提取名词性短语
+        # 提取中英文单词
         words = re.findall(r'[\u4e00-\u9fff]{2,5}', text) + re.findall(r'\b[a-zA-Z]{3,}\b', text)
         
         # 统计词频
@@ -405,118 +489,45 @@ class EnhancedPDFHandbook:
         sorted_words = sorted(word_freq.items(), key=lambda x: x[1], reverse=True)
         return [word for word, freq in sorted_words[:max_keywords]]
     
-    def _build_index(self):
-        """构建全文索引"""
+    def _build_global_index(self):
+        """构建全局索引"""
         python_keywords = {
-            '语法', '函数', '类', '对象', '模块', '包', '异常', '装饰器',
+            'python', '语法', '函数', '类', '对象', '模块', '包', '异常', '装饰器',
             '生成器', '迭代器', '列表', '字典', '集合', '元组', '字符串',
             '文件', '输入输出', '多线程', '异步', '网络', '数据库',
-            '测试', '调试', '性能', '优化', '算法', '数据结构'
+            '测试', '调试', '性能', '优化', '算法', '数据结构', '爬虫',
+            '数据分析', '机器学习', '深度学习', 'web开发', 'gui'
         }
         
-        for page_num, text in self.text_cache.items():
+        for file_key, content in self.text_cache.items():
             # 为每个关键词建立索引
             for keyword in python_keywords:
-                if keyword in text:
+                if keyword.lower() in content.lower():
                     if keyword not in self.content_index:
                         self.content_index[keyword] = []
                     
                     # 提取上下文
-                    context = self._get_context(text, keyword, 200)
+                    context = self._get_context(content, keyword, 200)
                     self.content_index[keyword].append({
-                        'page': page_num + 1,
+                        'file': file_key,
                         'context': context,
                         'type': 'keyword_match'
                     })
     
-    def _get_context(self, text: str, keyword: str, context_size: int = 200) -> str:
+    def _get_context(self, text: str, keyword: str, context_size: int = 200):
         """获取关键词上下文"""
-        pos = text.find(keyword)
-        if pos == -1:
+        # 不区分大小写搜索
+        pattern = re.compile(re.escape(keyword), re.IGNORECASE)
+        match = pattern.search(text)
+        if not match:
             return ""
         
+        pos = match.start()
         start = max(0, pos - context_size // 2)
         end = min(len(text), pos + len(keyword) + context_size // 2)
         return text[start:end]
     
-    def _extract_and_save_images(self):
-        """提取PDF中的图片并缓存"""
-        try:
-            images_dir = Path("static/images/handbook")
-            images_dir.mkdir(parents=True, exist_ok=True)
-            
-            image_count = 0
-            for page_num in range(len(self.doc)):
-                page = self.doc[page_num]
-                image_list = page.get_images(full=True)
-                
-                for img_index, img in enumerate(image_list):
-                    xref = img[0]
-                    base_image = self.doc.extract_image(xref)
-                    
-                    if base_image:
-                        image_bytes = base_image["image"]
-                        image_ext = base_image["ext"]
-                        
-                        # 生成唯一文件名
-                        image_hash = hashlib.md5(image_bytes).hexdigest()[:8]
-                        image_filename = f"page_{page_num+1}_img_{img_index}_{image_hash}.{image_ext}"
-                        image_path = images_dir / image_filename
-                        
-                        # 保存图片
-                        with open(image_path, "wb") as f:
-                            f.write(image_bytes)
-                        
-                        # 缓存图片信息
-                        image_key = f"page_{page_num+1}_img_{img_index}"
-                        self.images_cache[image_key] = {
-                            'path': str(image_path),
-                            'page': page_num + 1,
-                            'index': img_index,
-                            'base64': self._image_to_base64(image_bytes, image_ext),
-                            'caption': self._generate_image_caption(page_num, img_index)
-                        }
-                        
-                        # 关联图片和附近文本
-                        self._link_image_to_text(page_num, img_index)
-                        
-                        image_count += 1
-            
-            logger.info(f"提取了 {image_count} 张图片")
-            
-        except Exception as e:
-            logger.error(f"提取图片失败: {e}")
-    
-    def _image_to_base64(self, image_bytes: bytes, image_ext: str) -> str:
-        """将图片转换为base64"""
-        return base64.b64encode(image_bytes).decode('utf-8')
-    
-    def _generate_image_caption(self, page_num: int, img_index: int) -> str:
-        """生成图片标题"""
-        page_text = self.text_cache.get(page_num, "")
-        
-        # 在图片附近找相关文本作为标题
-        lines = page_text.split('\n')
-        if lines and len(lines) > 0:
-            # 简单返回页面第一行作为标题
-            return lines[0][:50] + "..."
-        
-        return f"第{page_num+1}页 图片{img_index+1}"
-    
-    def _link_image_to_text(self, page_num: int, img_index: int):
-        """将图片与附近文本关联"""
-        page_text = self.text_cache.get(page_num, "")
-        if page_text:
-            # 提取页面中的关键词
-            keywords = self._extract_keywords(page_text, 5)
-            image_key = f"page_{page_num+1}_img_{img_index}"
-            
-            for keyword in keywords:
-                if keyword not in self.image_index:
-                    self.image_index[keyword] = []
-                self.image_index[keyword].append(image_key)
-    
-    def search_with_images(self, query: str, max_results: int = 5) -> dict:
+    def search_with_images(self, query: str, max_results: int = 5):
         """搜索内容并返回相关图片"""
         results = {
             'text_results': [],
@@ -527,24 +538,28 @@ class EnhancedPDFHandbook:
         query_lower = query.lower()
         
         # 1. 搜索章节
-        for section, content in self.sections.items():
-            if query_lower in section.lower() or query_lower in content.lower():
-                # 提取相关段落
-                paragraphs = content.split('\n')
-                relevant_content = []
-                
-                for para in paragraphs:
-                    if query_lower in para.lower():
-                        clean_para = re.sub(r'\s+', ' ', para).strip()
-                        if len(clean_para) > 30:
-                            relevant_content.append(clean_para)
-                
-                if relevant_content:
-                    results['sections'].append({
-                        'title': section,
-                        'content': ' '.join(relevant_content[:2]),
-                        'full_content': content[:1000]
-                    })
+        for section_key, content in self.sections.items():
+            if query_lower in section_key.lower() or query_lower in content.lower():
+                # 提取文件名和章节名
+                if '#' in section_key:
+                    file_part, section_part = section_key.split('#', 1)
+                    # 提取相关段落
+                    paragraphs = content.split('\n')
+                    relevant_content = []
+                    
+                    for para in paragraphs:
+                        if query_lower in para.lower():
+                            clean_para = re.sub(r'\s+', ' ', para).strip()
+                            if len(clean_para) > 30:
+                                relevant_content.append(clean_para)
+                    
+                    if relevant_content:
+                        results['sections'].append({
+                            'file': file_part,
+                            'title': section_part,
+                            'content': ' '.join(relevant_content[:2]),
+                            'full_content': content[:1000]
+                        })
         
         # 2. 搜索关键词索引
         for keyword in query_lower.split():
@@ -554,22 +569,24 @@ class EnhancedPDFHandbook:
                         'type': 'keyword',
                         'keyword': keyword,
                         'content': item.get('context', item.get('content', '')),
-                        'page': item.get('page', 1),
+                        'file': item.get('file', ''),
                         'relevance': item.get('relevance', 'medium')
                     })
         
         # 3. 搜索相关图片
         for keyword in query_lower.split():
             if keyword in self.image_index:
-                for image_key in self.image_index[keyword][:3]:  # 最多3张图片
+                for image_key in self.image_index[keyword][:3]:
                     if image_key in self.images_cache:
                         image_info = self.images_cache[image_key]
                         results['image_results'].append({
                             'key': image_key,
-                            'caption': image_info['caption'],
-                            'base64': image_info['base64'],
-                            'page': image_info['page'],
-                            'related_keyword': keyword
+                            'caption': image_info['title'],
+                            'base64': image_info.get('base64'),
+                            'url': image_info.get('url'),
+                            'file': image_info['file'],
+                            'related_keyword': keyword,
+                            'type': image_info['type']
                         })
         
         # 如果没有直接结果，尝试模糊匹配
@@ -578,7 +595,7 @@ class EnhancedPDFHandbook:
         
         return results
     
-    def _fuzzy_search(self, query: str) -> dict:
+    def _fuzzy_search(self, query: str):
         """模糊搜索"""
         results = {
             'text_results': [],
@@ -587,19 +604,19 @@ class EnhancedPDFHandbook:
         }
         
         # 在所有文本中搜索
-        for page_num, text in self.text_cache.items():
-            if query in text.lower():
+        for file_key, text in self.text_cache.items():
+            if query.lower() in text.lower():
                 context = self._get_context(text, query, 300)
                 results['text_results'].append({
                     'type': 'full_text',
                     'content': context,
-                    'page': page_num + 1,
+                    'file': file_key,
                     'relevance': 'medium'
                 })
         
         return results
     
-    def get_relevant_images(self, topic: str, limit: int = 3) -> list:
+    def get_relevant_images(self, topic: str, limit: int = 3):
         """获取特定主题的相关图片"""
         images = []
         
@@ -610,31 +627,26 @@ class EnhancedPDFHandbook:
                     if image_key in self.images_cache:
                         images.append(self.images_cache[image_key])
         
-        # 如果没有找到，返回第一页的图片
+        # 如果没有找到，返回README文件中的图片
         if not images:
             for key, img in self.images_cache.items():
-                if img['page'] == 1:
+                if 'README' in img['file']:
                     images.append(img)
                     if len(images) >= limit:
                         break
         
         return images
     
-    def get_page_images(self, page_num: int) -> list:
-        """获取指定页面的所有图片"""
+    def get_page_images(self, page_num: int):
+        """获取指定页面的所有图片（为兼容性保留）"""
         images = []
-        
-        for key, img in self.images_cache.items():
-            if img['page'] == page_num:
-                images.append(img)
-        
         return images
     
-    def search_exact_content(self, exact_phrase: str) -> list:
+    def search_exact_content(self, exact_phrase: str):
         """精确短语搜索"""
         results = []
         
-        for page_num, text in self.text_cache.items():
+        for file_key, text in self.text_cache.items():
             positions = [m.start() for m in re.finditer(re.escape(exact_phrase), text, re.IGNORECASE)]
             
             for pos in positions[:3]:  # 最多3个匹配
@@ -643,7 +655,7 @@ class EnhancedPDFHandbook:
                 context = text[start:end]
                 
                 results.append({
-                    'page': page_num + 1,
+                    'file': file_key,
                     'position': pos,
                     'context': context,
                     'exact_match': exact_phrase
@@ -651,36 +663,51 @@ class EnhancedPDFHandbook:
         
         return results
     
-    def generate_citation(self, content: str, max_length: int = 500) -> str:
+    def generate_citation(self, content: str, max_length: int = 500):
         """生成引用格式的内容"""
         if not content:
             return ""
         
-        # 查找内容在PDF中的位置
-        for page_num, text in self.text_cache.items():
+        # 在所有文件中查找
+        for file_key, text in self.text_cache.items():
             if content[:100] in text:
                 start_pos = text.find(content[:100])
                 if start_pos != -1:
-                    return f"《Python背记手册》第{page_num+1}页: {content[:max_length]}..."
+                    return f"《Python-100-Days》{file_key}: {content[:max_length]}..."
         
         # 如果没找到，返回原始内容
         return content[:max_length] + "..."
+    
+    def get_file_content(self, file_path: str):
+        """获取指定文件的内容"""
+        try:
+            full_path = self.base_path / file_path
+            if full_path.exists():
+                return full_path.read_text(encoding='utf-8', errors='ignore')
+        except:
+            pass
+        return None
 
 class PythonProgrammingAgent:
     def __init__(self):
         self.tools = {
             "code_executor": self.code_executor,
             "syntax_checker": self.syntax_checker,
-            "python_documentation": self.python_documentation,
             "code_analyzer": self.code_analyzer,
             "handbook_search": self.handbook_search,
             "enhanced_handbook_search": self.enhanced_handbook_search
         }
 
-        # 初始化PDF手册
-        pdf_path = os.path.join(os.path.dirname(__file__), 'static', 'Python背记手册.pdf')
-        self.enhanced_handbook = EnhancedPDFHandbook(pdf_path)
-        self.handbook = self.enhanced_handbook  # 保持向后兼容
+        # 初始化Markdown手册
+        try:
+            base_path = os.path.join(os.path.dirname(__file__), 'static', 'Python-100-Days-master')
+            self.enhanced_handbook = MarkdownHandbook(base_path)
+            self.handbook = self.enhanced_handbook  # 保持向后兼容
+            print(f"✅ Markdown手册加载成功: {len(self.enhanced_handbook.md_files)} 个文件")
+        except Exception as e:
+            print(f"❌ Markdown手册初始化失败: {e}")
+            self.enhanced_handbook = None
+            self.handbook = None
 
         # 初始化模型
         self.llm = None
@@ -711,7 +738,7 @@ class PythonProgrammingAgent:
 3. 解释代码逻辑和原理
 4. 帮助调试和优化代码
 5. 提供Python最新特性的信息
-6. 当回答涉及《Python背记手册》的内容时，优先引用手册中的权威解释
+6. 当回答涉及《Python-100-Days》的内容时，优先引用手册中的权威解释
 7. 如果手册中有相关图表或示例图片，请在回答中明确指出并引用图片内容
 8. 当用户上传代码或图表图片时，仔细分析图片内容并给出专业建议
 9. 对于复杂概念，结合手册中的图示进行解释
@@ -723,32 +750,35 @@ class PythonProgrammingAgent:
 - 指出潜在的陷阱和注意事项
 - 保持回答的专业性和准确性
 - 使用Markdown格式美化回答，特别是代码块要用```python标记
-- 如果从手册中找到相关信息，请注明"根据《Python背记手册》第X页..."
+- 如果从手册中找到相关信息，请注明"根据《Python-100-Days》第X页..."
 - 如果手册中有相关图表，请说明"手册中的图表展示了..."
 - 对于复杂概念，建议用户查看手册中的图示"""
 
     def enhanced_handbook_search(self, query: str) -> str:
         """增强版手册搜索，包含图片"""
         try:
+            if self.enhanced_handbook is None:
+                return f"《Python-100-Days》手册未正确初始化。"
+            
             results = self.enhanced_handbook.search_with_images(query)
             
             if not results['text_results'] and not results['image_results']:
-                return f"在《Python背记手册》中未找到与'{query}'直接相关的内容。"
+                return f"在《Python-100-Days》中未找到与'{query}'直接相关的内容。"
             
-            response = "## 📚 《Python背记手册》相关内容\n\n"
+            response = "## 📚 《Python-100-Days》相关内容\n\n"
             
             # 文本内容
             if results.get('text_results'):
                 response += "### 📖 相关文本内容\n\n"
                 for i, result in enumerate(results['text_results'][:3], 1):
                     citation = self.enhanced_handbook.generate_citation(result['content'])
-                    response += f"{i}. **第{result.get('page', '?')}页** - {citation}\n\n"
+                    response += f"{i}. **{result.get('file', '未知文件')}** - {citation}\n\n"
             
             # 章节内容
             if results.get('sections'):
                 response += "### 📑 相关章节\n\n"
                 for i, section in enumerate(results['sections'][:2], 1):
-                    response += f"{i}. **{section['title']}**\n"
+                    response += f"{i}. **{section['title']}** (来自: {section['file']})\n"
                     response += f"   {section['content'][:200]}...\n\n"
             
             # 相关图片
@@ -756,9 +786,15 @@ class PythonProgrammingAgent:
                 response += "### 🖼️ 相关图表和示例\n\n"
                 response += "手册中包含以下相关图示：\n\n"
                 for img in results['image_results'][:2]:
-                    response += f"- **{img['caption']}** (第{img['page']}页)\n"
-                    # 在响应中标记图片位置，由前端处理显示
-                    response += f"[IMAGE:{img['caption']}]\n{img['base64']}\n[/IMAGE]\n\n"
+                    response += f"- **{img['caption']}** (来自: {img['file']})\n"
+                    
+                    # 根据图片类型处理
+                    if img['type'] == 'local' and img.get('base64'):
+                        # 本地图片，使用base64
+                        response += f"[IMAGE:{img['caption']}]\n{img['base64']}\n[/IMAGE]\n\n"
+                    elif img['type'] == 'web' and img.get('url'):
+                        # 网络图片，使用URL
+                        response += f"![{img['caption']}]({img['url']})\n\n"
             
             return response
             
@@ -767,7 +803,7 @@ class PythonProgrammingAgent:
             return f"搜索手册时出现错误: {str(e)}"
 
     def handbook_search(self, query: str) -> str:
-        """从Python背记手册中搜索相关信息"""
+        """从Python-100-Days手册中搜索相关信息"""
         try:
             # 使用增强版搜索
             return self.enhanced_handbook_search(query)
@@ -911,83 +947,6 @@ class PythonProgrammingAgent:
                 report.append("• 更多风格问题请查看完整分析结果")
 
         return "\n".join(report)
-
-    def python_documentation(self, topic: str) -> str:
-        """提供Python官方文档中的相关信息。"""
-        docs = {
-            "列表推导式": {
-                "description": "列表推导式提供了创建列表的简洁方式",
-                "syntax": "[expression for item in iterable if condition]",
-                "examples": [
-                    "squares = [x**2 for x in range(5)]  # [0, 1, 4, 9, 16]",
-                    "even_squares = [x**2 for x in range(10) if x % 2 == 0]  # [0, 4, 16, 36, 64]",
-                    "pairs = [(x, y) for x in range(3) for y in range(3)]  # 嵌套循环"
-                ]
-            },
-            "装饰器": {
-                "description": "装饰器用于修改函数/类的行为",
-                "syntax": "@decorator",
-                "examples": [
-                    "import time\ndef timer_decorator(func):\n    def wrapper(*args, **kwargs):\n        start = time.time()\n        result = func(*args, **kwargs)\n        print(f'运行时间: {time.time()-start:.2f}秒')\n        return result\n    return wrapper\n\n@timer_decorator\ndef slow_func():\n    time.sleep(1)\n    return '完成'"
-                ]
-            },
-            "生成器": {
-                "description": "生成器是节省内存的迭代器，使用yield关键字",
-                "syntax": "def generator_func(): yield value",
-                "examples": [
-                    "def number_gen(n):\n    for i in range(n):\n        yield i",
-                    "squares = (x**2 for x in range(5))  # 生成器表达式"
-                ]
-            },
-            "上下文管理器": {
-                "description": "用于管理资源（文件/连接），使用with语句",
-                "syntax": "with context_manager as var:",
-                "examples": [
-                    "with open('file.txt', 'w') as f:\n    f.write('Hello')",
-                    "class Timer:\n    def __enter__(self):\n        self.start = time.time()\n        return self\n    def __exit__(self, exc_type, exc_val, exc_tb):\n        print(f'耗时: {time.time()-self.start:.2f}秒')"
-                ]
-            },
-            "异常处理": {
-                "description": "捕获运行时错误",
-                "syntax": "try-except-else-finally",
-                "examples": [
-                    "try:\n    result = 10 / 2\nexcept ZeroDivisionError:\n    print('不能除以零')\nelse:\n    print(f'结果: {result}')\nfinally:\n    print('清理完成')"
-                ]
-            },
-            "面向对象": {
-                "description": "支持类/对象/继承",
-                "syntax": "class ClassName:",
-                "examples": [
-                    "class Person:\n    species = '人类'\n    def __init__(self, name, age):\n        self.name = name\n        self.age = age\n    def introduce(self):\n        return f'我叫{self.name}，{self.age}岁'\n    @classmethod\n    def get_species(cls):\n        return cls.species"
-                ]
-            }
-        }
-
-        topic_lower = topic.lower().strip()
-        for key in docs:
-            if topic_lower in key.lower():
-                doc = docs[key]
-                response = f"## {key}\n\n**描述**: {doc['description']}\n\n**语法**: `{doc['syntax']}`\n\n**示例**:\n"
-                for example in doc['examples']:
-                    response += f"```python\n{example}\n```\n"
-                
-                # 尝试从手册中搜索相关内容
-                try:
-                    handbook_results = self.enhanced_handbook_search(topic)
-                    if "未找到" not in handbook_results:
-                        response += f"\n## 📚 手册相关内容\n{handbook_results}"
-                except:
-                    pass
-                
-                return response
-
-        # 如果在预定义文档中没找到，尝试从手册中搜索
-        handbook_result = self.enhanced_handbook_search(topic)
-        if "未找到" not in handbook_result:
-            return handbook_result
-
-        available_topics = "\n".join([f"- {t}" for t in docs.keys()])
-        return f"未找到'{topic}'的文档。可用主题：\n{available_topics}"
 
     def code_analyzer(self, code: str) -> str:
         """分析Python代码，提供改进建议和最佳实践。"""
@@ -1293,18 +1252,6 @@ class PythonProgrammingAgent:
                     "tool_input": code_match.group(1)
                 })
 
-        # 检测文档查询
-        elif any(word in question_lower for word in ['文档', '说明', '介绍', '什么是', 'documentation']):
-            for topic in ['列表推导式', '装饰器', '生成器', '上下文管理器', '异常处理', '面向对象', '异步编程',
-                          '类型注解']:
-                if topic in question:
-                    tool_usage.update({
-                        "use_tool": True,
-                        "tool_name": "python_documentation",
-                        "tool_input": topic
-                    })
-                    break
-
         return tool_usage
 
     def _should_search_handbook(self, question: str) -> bool:
@@ -1368,7 +1315,7 @@ class PythonProgrammingAgent:
 
 {base_answer}
 
-> 📚 以上回答参考了《Python背记手册》中的相关内容，确保了解释的准确性和权威性。
+> 📚 以上回答参考了《Python-100-Days》中的相关内容，确保了解释的准确性和权威性。
 """
         return integration
 
@@ -1390,7 +1337,7 @@ class PythonProgrammingAgent:
                 enhanced_question = f"""
 用户问题: {question}
 
-根据《Python背记手册》相关内容:
+根据《Python-100-Days》相关内容:
 {handbook_content}
 
 请基于以上信息回答用户问题，确保回答准确且引用手册中的权威解释。
@@ -1414,11 +1361,11 @@ class PythonProgrammingAgent:
 工具执行结果:
 {tool_result}
 
-请基于工具执行结果，给用户一个完整、专业的回答。用中文回答，使用Markdown格式。如果可能，引用《Python背记手册》中的相关内容。"""
+请基于工具执行结果，给用户一个完整、专业的回答。用中文回答，使用Markdown格式。如果可能，引用《Python-100-Days》中的相关内容。"""
 
                         messages = [
                             SystemMessage(
-                                content="你是一个Python编程助手，请基于工具执行结果和《Python背记手册》给用户提供专业、完整的回答。"),
+                                content="你是一个Python编程助手，请基于工具执行结果和《Python-100-Days》给用户提供专业、完整的回答。"),
                             HumanMessage(content=enhanced_prompt)
                         ]
                         response = self.llm.invoke(messages)
@@ -1437,7 +1384,7 @@ class PythonProgrammingAgent:
                 answer = response.content
                 
                 # 如果手册有相关内容且没包含在回答中，添加引用
-                if handbook_content and "《Python背记手册》" not in answer:
+                if handbook_content and "《Python-100-Days》" not in answer:
                     answer = self._integrate_handbook_content(answer, handbook_content)
                 
                 return answer
@@ -1471,17 +1418,11 @@ class PythonProgrammingAgent:
 
         # 本地知识库
         if any(w in q for w in ['列表推导', 'list comprehension']):
-            return self.python_documentation("列表推导式")
+            return "## 列表推导式\n\n列表推导式提供了创建列表的简洁方式。\n\n**语法**:\n```python\n[expression for item in iterable if condition]\n```\n\n**示例**:\n```python\nsquares = [x**2 for x in range(5)]  # [0, 1, 4, 9, 16]\neven_squares = [x**2 for x in range(10) if x % 2 == 0]  # [0, 4, 16, 36, 64]\npairs = [(x, y) for x in range(3) for y in range(3)]  # 嵌套循环\n```"
         elif any(w in q for w in ['装饰器', 'decorator']):
-            return self.python_documentation("装饰器")
+            return "## 装饰器\n\n装饰器用于修改函数/类的行为。\n\n**语法**:\n```python\n@decorator\ndef function():\n    pass\n```\n\n**示例**:\n```python\nimport time\ndef timer_decorator(func):\n    def wrapper(*args, **kwargs):\n        start = time.time()\n        result = func(*args, **kwargs)\n        print(f'运行时间: {time.time()-start:.2f}秒')\n        return result\n    return wrapper\n\n@timer_decorator\ndef slow_func():\n    time.sleep(1)\n    return '完成'\n```"
         elif any(w in q for w in ['生成器', 'generator']):
-            return self.python_documentation("生成器")
-        elif any(w in q for w in ['上下文管理', 'context manager', 'with']):
-            return self.python_documentation("上下文管理器")
-        elif any(w in q for w in ['异常', 'exception', 'try', 'except']):
-            return self.python_documentation("异常处理")
-        elif any(w in q for w in ['类', 'class', '对象', 'object', '面向对象']):
-            return self.python_documentation("面向对象")
+            return "## 生成器\n\n生成器是节省内存的迭代器，使用yield关键字。\n\n**语法**:\n```python\ndef generator_func():\n    yield value\n```\n\n**示例**:\n```python\ndef number_gen(n):\n    for i in range(n):\n        yield i\n\n# 生成器表达式\nsquares = (x**2 for x in range(5))\n```"
         elif any(w in q for w in ['语法', 'syntax', '检查']):
             return "请提供Python代码，我将检查语法正确性（示例：\n```python\ndef add(a,b): return a+b\n```）"
         elif any(w in q for w in ['执行', '运行', 'test', 'run']):
@@ -1489,4 +1430,4 @@ class PythonProgrammingAgent:
         elif any(w in q for w in ['分析', '优化', '改进']):
             return "请提供Python代码，我将分析并给出改进建议（示例：\n```python\ndef calc():\n    total=0\n    for i in range(10): total+=i\n    print(total)\n```）"
         else:
-            return "⚠️ 本地模式仅支持以下主题：\n- 列表推导式、装饰器、生成器\n- 上下文管理器、异常处理、面向对象\n- 代码语法检查、执行、分析优化\n如需更多回答，请配置DeepSeek/OpenAI API密钥"
+            return "⚠️ 本地模式仅支持以下主题：\n- 列表推导式、装饰器、生成器\n- 代码语法检查、执行、分析优化\n如需更多回答，请配置DeepSeek/OpenAI API密钥"
